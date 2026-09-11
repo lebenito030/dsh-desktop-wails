@@ -99,11 +99,15 @@ func injectThemeProbe(body string) string {
     for (var i = 0; i < all.length; i++) {
       var el = all[i];
       var r = el.getBoundingClientRect();
-      if (r.width < 40 || r.width >= window.innerWidth - 40) continue;
+      if (r.width < 60 || r.width >= window.innerWidth - 40) continue;
       if (r.left < sidebarW - 1) continue;
-      if (r.top > 1 || r.bottom < window.innerHeight - 1) continue;
-      var cs = getComputedStyle(el);
-      if (cs.position === "fixed" || cs.position === "absolute") continue;
+      /* 起点允许到让位区底部：已补过 padding 的列（top=32）要继续命中，
+         否则 React 一重渲染就会失去让位。 */
+      if (r.top > SHELL_TOP) continue;
+      /* 接近通高即可：右侧栏底部可能有内边距/状态区，够不到窗口最底沿。 */
+      if (r.bottom < window.innerHeight - 60) continue;
+      /* 只排除 fixed（弹层）；absolute 的侧栏面板是合法布局。 */
+      if (getComputedStyle(el).position === "fixed") continue;
       cands.push(el);
     }
     var tops = [];
