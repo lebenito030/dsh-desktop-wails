@@ -1,0 +1,51 @@
+name: test
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # Wails v2 不支持交叉编译，且 webview 依赖是平台原生的，
+        # 所以测试矩阵直接按三个系统各跑一遍。
+        os: [ubuntu-22.04, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # Wails 在 Linux 上要链接 webkit2gtk，`go vet`/`go build` 编译主包就绕不开它。
+      - name: Install Linux webview dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        # 只测 internal/...：根包是 Wails 装配层，没有可独立运行的单元测试，
+        # 真正的逻辑都在 internal 里。
+        run: go test ./internal/... -v
+
+      - name: Build frontend
+        run: |
+          cd frontend
+          npm ci
+          npm run build

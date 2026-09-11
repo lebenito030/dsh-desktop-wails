@@ -1,0 +1,15 @@
+# 行尾统一：这是跨平台仓库（CI 在三个系统上构建），统一 LF 能避免
+# 「Windows 上改的文件带 CRLF、Linux 上 shell 脚本跑不起来」这类问题。
+# Windows 专属脚本显式保留 CRLF。
+* text=auto eol=lf
+
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf
+
+# 二进制资产
+*.png  binary
+*.ico  binary
+*.icns binary
+*.svg  text
+*.nsi  text

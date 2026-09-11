@@ -20,5 +20,8 @@ dsh-desktop-data/
 .DS_Store
 Thumbs.db
 
+# 本地工作记录（AI agent 的笔记），绝不上传
+.workbuddy/
+
 # Logs
 *.log
