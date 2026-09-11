@@ -31,13 +31,14 @@ func main() {
 		OnStartup:        app.startup,
 		OnBeforeClose:    app.beforeClose,
 		OnShutdown:       app.shutdown,
-		// 关窗 = 隐藏到托盘（Wails 在 WM_CLOSE 时直接 Hide，不走 Quit）；
-		// 真正退出只经托盘「退出」→ QuitApp → runtime.Quit。
-		HideWindowOnClose: true,
+		// 关窗行为由 beforeClose 决定：托盘在 → 隐藏到托盘；托盘不在 → 退出。
+		// 不能用 HideWindowOnClose——它会让 Wails 直接隐藏窗口、绕过 beforeClose，
+		// 那样托盘不可用时（如 GNOME 未显示 SNI 图标）用户就再也找不到窗口了。
+		HideWindowOnClose: false,
 		SingleInstanceLock: &options.SingleInstanceLock{
 			UniqueId: "dsh-desktop-wails-7f3c2a91",
-			OnSecondInstanceLaunch: func(_ options.SecondInstanceData) {
-				app.activateFromSecondInstance()
+			OnSecondInstanceLaunch: func(data options.SecondInstanceData) {
+				app.onSecondInstance(data.Args)
 			},
 		},
 		Windows: &windows.Options{

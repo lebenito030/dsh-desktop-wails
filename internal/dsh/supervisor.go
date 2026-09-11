@@ -133,6 +133,9 @@ func (s *Supervisor) startLocked(ctx context.Context) (string, error) {
 	}
 	cmd.Env = append(os.Environ(), envPairs(s.cfg.Env)...)
 	hideWindow(cmd)
+	// 平台相关的进程树准备：Windows 无需设置（Job Object 负责），
+	// Unix 需要让子进程自成一个进程组，否则 terminate 会连壳一起杀。
+	configureProcessTree(cmd)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

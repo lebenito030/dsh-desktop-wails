@@ -11,7 +11,9 @@ dsh-desktop-wails/
 │
 ├── main.go                   Wails 装配：窗口参数、单实例锁、生命周期回调
 ├── app.go                    绑定层：串起 internal 各包，向前端/托盘转发状态
+├── tray.go                   托盘的跨平台共用状态（登记标志 / 状态文案 / 日志）
 ├── tray_windows.go           原生 Win32 托盘（仅 windows 构建）
+├── tray_unix.go              macOS / Linux 托盘（energye/systray，darwin+linux 构建）
 │
 ├── internal/
 │   ├── config/config.go      config.json 读写、默认值、Sanitize
@@ -23,7 +25,8 @@ dsh-desktop-wails/
 │   ├── dsh/
 │   │   ├── paths.go          数据目录解析 + 各子路径推导
 │   │   ├── supervisor.go     DSH 进程监督器：启动/就绪探测/停止/重启合并
-│   │   ├── job_windows.go    Job Object(kill-on-close) 进程树回收
+│   │   ├── job_windows.go    Job Object(kill-on-close) 进程树回收（Windows）
+│   │   ├── job_unix.go       进程组回收（macOS / Linux）
 │   │   └── hidewindow_*.go   同上
 │   ├── proxy/
 │   │   ├── proxy.go          持有会话 cookie 的反代 + Director/ModifyResponse
@@ -31,6 +34,7 @@ dsh-desktop-wails/
 │   │   └── listen.go         127.0.0.1 随机端口监听
 │   └── update/check.go       查 npm registry dist-tag latest 并对比本地版本
 │
+├── .github/workflows/        CI：test（三平台跑测试）/ release（tag 触发三平台打包）
 ├── frontend/                 壳页面（Vite + 原生 TypeScript）
 │   ├── index.html            骨架：iframe + 拖动条 + 自绘窗口按钮 + 浮层
 │   ├── package.json          仅 devDependencies（vite / typescript），无运行时依赖
@@ -44,14 +48,17 @@ dsh-desktop-wails/
 │
 ├── build/                    图标、清单、安装器模板（→ build/README.md）
 │   ├── appicon.png           1024 应用图标源
-│   ├── tray.ico              托盘图标（16/20/24/32/48）
+│   ├── tray.ico              托盘图标（16/20/24/32/48，Windows）
+│   ├── tray.png              托盘图标 32px（Linux）
+│   ├── tray-template.png     菜单栏图标 32px（macOS，单色 template）
 │   ├── dsh-logo.svg          鲸鱼矢量源文件
+│   ├── gen-icons.py          **以上全部图标的生成器**（需要 numpy + Pillow）
 │   ├── windows/
 │   │   ├── icon.ico          exe / 窗口图标（16…256）
 │   │   ├── info.json         版本信息（exe 属性面板）
 │   │   ├── wails.exe.manifest  per-monitor-v2 DPI 感知 + Common Controls 6
 │   │   └── installer/*.nsi   NSIS 安装器模板
-│   ├── darwin/               macOS 打包 plist（当前不构建 mac，保留模板）
+│   ├── darwin/               macOS 打包 plist
 │   └── bin/                  **构建产物目录，勿提交**
 │       ├── dsh-desktop.exe
 │       └── dsh-desktop-data/ ← 便携模式下的运行时数据目录（见第 2 节）

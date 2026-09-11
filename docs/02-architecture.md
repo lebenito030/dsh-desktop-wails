@@ -115,7 +115,7 @@ dsh web: http://127.0.0.1:<port>/?token=<登录令牌>
 注入以 `dshDesktopThemeProbe` 标记去重；`Content-Length`/`Content-Encoding` 会在注入后清掉；
 **任何一步失败都直接放弃注入，不影响页面返回**。
 
-## 5. 进程树回收（Job Object）
+## 5. 进程树回收
 
 - 起 DSH 前创建 Job Object，设 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`，把 DSH 进程挂进去
   （`internal/dsh/job_windows.go`）；
@@ -124,9 +124,20 @@ dsh web: http://127.0.0.1:<port>/?token=<登录令牌>
   不会留孤儿 `node.exe`；
 - 用 `CREATE_NO_WINDOW` 起子进程，避免 GUI 父进程派生控制台子进程时闪黑窗。
 
-## 6. 托盘为什么是原生 Win32 实现
+**macOS / Linux 用进程组代替**（`internal/dsh/job_unix.go`）：子进程以 `Setpgid: true`
+自成一个进程组，`terminate` 就是 `kill(-pgid, SIGKILL)`。能力差异要记住：
 
-原实现用第三方 `energye/systray`，托盘时好时坏。根因：
+| | Windows（Job Object）| macOS / Linux（进程组）|
+|---|---|---|
+| 正常停止 / 重启 | 杀整棵树 | 杀整棵树（等价）|
+| 壳被 SIGKILL / 崩溃 | 内核自动回收 | **子树成为孤儿**（进程组只在主动 terminate 时生效）|
+
+Linux 的 `Pdeathsig` 看似能补齐，但它按「父**线程**」判定，而 Go 运行时会销毁线程，
+可能把活着的 DSH 误杀——所以**不用**（见 `job_unix.go` 顶部注释）。
+
+## 6. 托盘：Windows 原生 Win32，macOS/Linux 用 energye/systray
+
+原实现（全平台）用第三方 `energye/systray`，Windows 上托盘时好时坏。根因：
 
 > Windows 的消息队列是**线程私有**的，`GetMessage(NULL, ...)` 只取调用线程的消息。
 > systray 这类库在同一个 goroutine 里先创建窗口、再跑消息循环，但**从不
@@ -134,17 +145,38 @@ dsh web: http://127.0.0.1:<port>/?token=<登录令牌>
 > 消息循环就停在一条永远收不到消息的队列上——表现是「图标在、点什么都没反应」。
 > 更糟的是库只用 `log.Printf` 报错，而 GUI 进程没有 stderr，失败完全不可见。
 
-现在自己持有整条链路（`tray_windows.go`）：
+所以三端现在是**两套实现**，这是个有意的不对称：
+
+| 平台 | 实现 | 为什么 |
+|---|---|---|
+| Windows | `tray_windows.go`，原生 Win32 | 上述竞态必须自己握住整条链路才能根除 |
+| macOS / Linux | `tray_unix.go`，`energye/systray` | 没有线程私有消息队列的问题；库的 darwin(Cocoa) / linux(StatusNotifierItem+DBus) 实现成熟，自己手写 cgo/DBus 在无法真机验证的前提下风险更大；Linux 侧还是**纯 Go**（该 fork 移除了 GTK 依赖），唯一依赖 `godbus/dbus/v5` 本来就在 go.mod 里 |
+
+Windows 侧自己持有整条链路：
 
 | 措施 | 解决什么 |
 |---|---|
 | 托盘 goroutine **第一行** `runtime.LockOSThread()` | 窗口创建与消息循环同线程，从结构上消除上述竞态 |
 | 隐藏顶层窗口（`WS_POPUP` + `WS_EX_TOOLWINDOW`，永不 Show） | 不进任务栏 / Alt+Tab，但仍能收到 `TaskbarCreated` 广播 |
 | `TrackPopupMenu` 用 `TPM_RETURNCMD` | 阻塞回调期间不依赖 `WM_COMMAND`，选中项直接由返回值拿到 |
-| 菜单动作全部丢独立 goroutine | 重启/停止要等子进程退出，同步执行会饿死消息循环 |
+| 菜单动作全部丢独立 goroutine | 重启要等子进程退出，同步执行会饿死消息循环 |
 | `CreateIconFromResourceEx` 直接吃内存 ICO | 不落临时文件；失败回退「临时文件 + LoadImage」 |
 | 全流程写 `<数据目录>/tray.log` | 失败可查（`teeWriter`，不用 `io.MultiWriter`） |
 | 按真实 DPI 选图标尺寸 | 非 DPI-aware 进程的 `SM_CXSMICON` 会被虚拟化成 16，此时取 32px 交给系统缩小 |
+
+### 跨平台托盘的几个平台事实
+
+- **图标尺寸**：库在 darwin 侧把 `NSImage` 强制设成 16×16 **点**，所以 macOS 的
+  `tray-template.png` 给 32×32 像素（16pt @2x）才不会糊；Linux 走彩色 `tray.png`。
+  `SetTemplateIcon(template, color)` 一次调用两个平台都对——darwin 只取第 1 个参数
+  并打 template 标记，linux 只取第 2 个参数。
+- **事件循环**：Wails 占着主线程，所以必须用 `RunWithExternalLoop`（返回 start/end），
+  不能用会阻塞的 `Run()`。
+- **Linux 上「登记成功 ≠ 用户可见」**：GNOME 默认不显示 StatusNotifierItem，需要
+  AppIndicator 扩展或 snixembed 之类的代理。为此壳做了一个**安全退化**：`trayAlive()`
+  报告托盘是否已登记，托盘不可用时关窗从「隐藏到托盘」退化成「退出」——
+  宁可行为不一致，也不留一个唤不回的窗口。另提供 `dsh-desktop --quit` 作为
+  命令行逃生口（经单实例锁通知运行中的实例退出）。
 
 ## 7. 状态机与事件
 

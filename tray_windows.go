@@ -20,7 +20,6 @@ import (
 	_ "embed"
 	"encoding/binary"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -88,13 +87,13 @@ const (
 	trayIconTipMax = 127 // szTip 128 个 UTF-16 单元，留一个给结尾 NUL
 )
 
-// 托盘菜单项 ID。
+// 托盘菜单项 ID。菜单只有三项：重启服务 / 检查更新 / 退出。
+// 「显示主窗口」不放进菜单——左键单击托盘图标已经是它（见 trayWndProc）；
+// 「关闭服务」（停 DSH 但留着壳）已按 docs/01 的功能准入裁掉。
 const (
-	trayIDShow    = 1001
-	trayIDRestart = 1002
-	trayIDStop    = 1003
-	trayIDUpdate  = 1004
-	trayIDQuit    = 1005
+	trayIDRestart = 1001
+	trayIDUpdate  = 1002
+	trayIDQuit    = 1003
 )
 
 // ---- Win32 调用表 ----
@@ -203,9 +202,8 @@ var (
 	// explorer 重启后会广播 TaskbarCreated，需要在启动时查出它的消息号。
 	taskbarCreatedMsg uint32
 
-	trayMu  sync.Mutex
+	// trayCtl 由 tray.go 里的 trayMu 保护（跨平台共用状态）。
 	trayCtl *trayController
-	trayTip string // 托盘未就绪时暂存最后一次状态，就绪后补上
 )
 
 // trayController 持有托盘窗口/图标/菜单句柄。
@@ -246,6 +244,7 @@ func setupTray(app *App) {
 		tc.log.Printf("失败：注册托盘图标：%v", err)
 		return
 	}
+	setTrayIconAlive(true)
 	if err := tc.buildMenu(); err != nil {
 		tc.log.Printf("失败：构建托盘菜单：%v", err)
 		return
@@ -266,6 +265,8 @@ func setupTray(app *App) {
 	tc.setTooltip(tip)
 
 	tc.messageLoop()
+	// 图标已摘除：此后关窗要走「退出」而不是「隐藏」，否则窗口无处唤回。
+	setTrayIconAlive(false)
 	tc.log.Printf("消息循环退出，托盘结束")
 }
 
@@ -298,28 +299,6 @@ func trayShutdown() {
 	if hwnd != 0 {
 		procPostMessageW.Call(uintptr(hwnd), wmClose, 0, 0)
 	}
-}
-
-func trayStatusTip(s dsh.Status, detail string) string {
-	tip := "DSH Desktop — "
-	switch s {
-	case dsh.StatusReady:
-		tip += "运行中"
-	case dsh.StatusStarting:
-		tip += "启动中…"
-	case dsh.StatusRestarting:
-		tip += "重启中…"
-	case dsh.StatusUpdating:
-		tip += "更新中…"
-	case dsh.StatusError:
-		tip += "出错"
-		if detail != "" {
-			tip += ": " + detail
-		}
-	default:
-		tip += "已停止"
-	}
-	return tip
 }
 
 // ---- 窗口 ----
@@ -628,9 +607,7 @@ func (tc *trayController) buildMenu() error {
 	}
 
 	steps := []func() error{
-		func() error { return appendItem(trayIDShow, "显示主窗口") },
 		func() error { return appendItem(trayIDRestart, "重启服务") },
-		func() error { return appendItem(trayIDStop, "关闭服务") },
 		func() error { return appendItem(trayIDUpdate, "检查更新") },
 		appendSep,
 		func() error { return appendItem(trayIDQuit, "退出") },
@@ -642,7 +619,7 @@ func (tc *trayController) buildMenu() error {
 		}
 	}
 	tc.menu = m
-	tc.log.Printf("菜单已构建 menu=%#x（显示/重启/关闭/检查更新/退出）", m)
+	tc.log.Printf("菜单已构建 menu=%#x（重启服务/检查更新/退出）", m)
 	return nil
 }
 
@@ -675,23 +652,16 @@ func (tc *trayController) popupMenu() {
 	tc.dispatchMenu(id, err)
 }
 
-// dispatchMenu 把菜单动作放到独立 goroutine：重启/停止要等子进程退出，
+// dispatchMenu 把菜单动作放到独立 goroutine：重启要等子进程退出，
 // 卡在托盘线程里会让后续消息全部滞留。
 func (tc *trayController) dispatchMenu(id int32, callErr error) {
 	go func() {
 		switch id {
-		case trayIDShow:
-			tc.showWindow()
 		case trayIDRestart:
 			tc.log.Printf("执行：重启服务")
 			if err := tc.app.RestartDSH(); err != nil {
 				tc.log.Printf("重启失败：%v", err)
 				wruntime.LogErrorf(tc.app.ctx, "托盘重启失败: %v", err)
-			}
-		case trayIDStop:
-			tc.log.Printf("执行：关闭服务")
-			if err := tc.app.StopDSH(); err != nil {
-				tc.log.Printf("关闭服务失败：%v", err)
 			}
 		case trayIDUpdate:
 			tc.log.Printf("执行：检查更新")
@@ -745,51 +715,3 @@ func fillUTF16(dst []uint16, s string, maxUnits int) {
 	copy(dst, u)
 }
 
-// newTrayLogger 把托盘日志写到数据目录下的 tray.log，并在有 stderr 时同步打一份。
-//
-// 注意别用 io.MultiWriter：它在第一个 writer 报错时就整体返回，而 GUI 子系统
-// 进程（wails build 的产物）根本没有控制台，写 os.Stderr 必然拿到
-// "句柄无效"，于是日志文件会永远停在 0 字节——正是加这层日志要防的情况。
-// teeWriter 逐个写、忽略个别失败，坏掉一个不影响另一个。
-func newTrayLogger(dir string) *log.Logger {
-	var writers []io.Writer
-
-	path := filepath.Join(dir, "tray.log")
-	f, err := os.Create(path)
-	if err != nil {
-		path = filepath.Join(os.TempDir(), "dsh-desktop-tray.log")
-		f, err = os.Create(path)
-	}
-	if err == nil {
-		writers = append(writers, f)
-	}
-	writers = append(writers, os.Stderr)
-
-	lg := log.New(teeWriter(writers), "[tray] ", log.LstdFlags|log.Lmicroseconds)
-	if err != nil {
-		lg.Printf("警告：日志文件不可写（%v），只输出到 stderr", err)
-	} else {
-		lg.Printf("日志文件：%s", path)
-	}
-	return lg
-}
-
-// teeWriter 依次写多个 writer，忽略个别 writer 的失败。
-type teeWriter []io.Writer
-
-func (t teeWriter) Write(p []byte) (int, error) {
-	var lastErr error
-	n := 0
-	for _, w := range t {
-		wn, err := w.Write(p)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		n = wn
-	}
-	if n == 0 && lastErr != nil {
-		return 0, lastErr
-	}
-	return n, nil
-}

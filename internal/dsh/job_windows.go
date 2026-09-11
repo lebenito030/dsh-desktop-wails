@@ -6,6 +6,7 @@ package dsh
 
 import (
 	"fmt"
+	"os/exec"
 	"sync"
 	"unsafe"
 
@@ -33,6 +34,11 @@ func newJobObject() (*jobObject, error) {
 	}
 	return &jobObject{job: job, seen: make(map[uint32]struct{})}, nil
 }
+
+// configureProcessTree 在 Windows 上无事可做：进程树由 Job Object 托管
+// （子进程创建后 assign 进 Job 即可），不需要给子进程加任何 SysProcAttr。
+// 它存在的意义是让 supervisor 能写一句平台无关的调用，见 job_unix.go 的对应实现。
+func configureProcessTree(cmd *exec.Cmd) {}
 
 // assign 把进程挂进 Job。重复挂同一 PID 是无害的，这里仍去重以省一次系统调用。
 func (j *jobObject) assign(pid uint32) error {

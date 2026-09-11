@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 
 	"dsh-desktop-wails/internal/bootstrap"
@@ -36,6 +37,13 @@ func NewApp() *App {
 // startup 在 Wails 起来后调用：解析配置、装配各模块、发起启动编排。
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+
+	// 带 --quit 启动、但单实例锁没有触发（说明本来就没有别的实例在跑）：
+	// 这里没有任何需要清理的东西（DSH 还没起来），直接退出即可。
+	if wantQuit(os.Args[1:]) {
+		log.Printf("--quit：没有正在运行的实例可通知，直接退出")
+		os.Exit(0)
+	}
 
 	dataDir, _, err := dsh.ResolveDataDir("")
 	if err != nil {
@@ -223,11 +231,20 @@ func (a *App) WindowToggleMax() {
 	wruntime.EventsEmit(a.ctx, "window:maximised", wruntime.WindowIsMaximised(a.ctx))
 }
 
-// WindowHideToTray 隐藏窗口到托盘（自绘关闭按钮）。
+// WindowHideToTray 自绘关闭按钮的动作：隐藏窗口到托盘。
+//
+// 托盘不可用时退化为退出。原因见 trayAlive 的注释：把窗口藏进一个用户看不见的
+// 托盘，等于让应用变得不可达——既没有界面，也没有地方退出。
 func (a *App) WindowHideToTray() {
-	if a.ctx != nil {
-		wruntime.WindowHide(a.ctx)
+	if a.ctx == nil {
+		return
 	}
+	if !trayAlive() {
+		log.Printf("无托盘可用，关窗改为退出")
+		a.QuitApp()
+		return
+	}
+	wruntime.WindowHide(a.ctx)
 }
 
 // RetryBootstrap 首装失败后由前端重试按钮触发。
@@ -298,11 +315,46 @@ func (a *App) ApplyUpdate() {
 	go a.checkUpdate(false)
 }
 
-// beforeClose 在 runtime.Quit 时被调用（关窗不会走到这里，关窗由
-// HideWindowOnClose 直接隐藏）。返回 false=允许退出；updating 中拒绝退出
-// 以免打断 DSH 更新（极少发生，退出可再点）。
+// beforeClose 在窗口被关闭、或 runtime.Quit 触发退出时被调用。
+// 返回 true = 取消关闭。
+//
+// 约定是「关窗 = 隐藏到托盘，只有从托盘退出才真正退出」。但这套约定成立的前提
+// 是托盘真的在：托盘不可用时（Linux 上 GNOME 默认不显示 SNI 图标等），隐藏窗口
+// 会让用户再也找不回界面、也无处退出，所以此时退化成「关窗即退出」。
+// 因此 main.go 里 HideWindowOnClose 必须关掉——关窗路径必须经过这里才能做判断。
 func (a *App) beforeClose(ctx context.Context) bool {
-	return !a.quitting
+	if a.quitting {
+		return false
+	}
+	if trayAlive() {
+		wruntime.WindowHide(ctx)
+		return true
+	}
+	log.Printf("无托盘可用，关窗改为退出")
+	a.quitting = true
+	return false
+}
+
+// onSecondInstance 处理「重复启动」：默认唤起已有窗口；带 --quit 则退出。
+// --quit 是给托盘不可见的场景留的逃生口——例如 GNOME 没装 AppIndicator 扩展时，
+// 用户既看不见托盘图标，托盘又是唯一的退出途径。见 docs/05 第 6 节。
+func (a *App) onSecondInstance(args []string) {
+	if wantQuit(args) {
+		log.Printf("收到 --quit，退出运行中的实例")
+		a.QuitApp()
+		return
+	}
+	a.activateFromSecondInstance()
+}
+
+// wantQuit 判断命令行参数是否在请求退出正在运行的实例。
+func wantQuit(args []string) bool {
+	for _, a := range args {
+		if a == "--quit" || a == "-q" {
+			return true
+		}
+	}
+	return false
 }
 
 // activateFromSecondInstance 二次启动时唤起已有窗口。
