@@ -87,17 +87,14 @@ body {
     font: inherit;
     transition: background 0.15s ease, color 0.15s ease;
 }
-.win-btn:hover { background: rgba(0, 0, 0, 0.08); color: #1f2430; }
+/* hover 只轻扫一层；DSH 顶栏本身浅淡，重着色会从页面里「跳出来」 */
+.win-btn:hover { background: rgba(0, 0, 0, 0.045); color: #1f2430; }
 .win-btn.win-close:hover { background: #e81123; color: #fff; }
 
 /* 深色主题：深底浅字 */
 #win-controls[data-theme="dark"] .win-btn { color: #b9c2d8; }
-#win-controls[data-theme="dark"] .win-btn:hover { background: rgba(255,255,255,0.12); color: #fff; }
+#win-controls[data-theme="dark"] .win-btn:hover { background: rgba(255,255,255,0.08); color: #fff; }
 #win-controls[data-theme="dark"] .win-btn.win-close:hover { background: #e81123; color: #fff; }
-
-/* hover 时给整个按钮组一个与主题协调的底色，避免与页面文字叠混 */
-#win-controls:hover { background: rgba(255, 255, 255, 0.85); }
-#win-controls[data-theme="dark"]:hover { background: rgba(30, 34, 45, 0.85); }
 
 /* ---- 浮层与弹层 ---- */
 #overlay, #update-modal {
