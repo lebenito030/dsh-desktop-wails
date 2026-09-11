@@ -68,3 +68,18 @@ wails dev      # 热重载开发
 ```
 
 前端为 Vite + 原生 TypeScript（`frontend/`），Go 侧模块在 `internal/`：`config`（配置）、`bootstrap`（下载/解压/npm 安装）、`dsh`（supervisor + Job Object）、`proxy`（cookie 反代）、`update`（registry 版本对比）。
+
+## 文档
+
+完整的设计规范与开发文档在 [`docs/`](docs/README.md)：
+
+| 文档 | 回答的问题 |
+|---|---|
+| [docs/01-design.md](docs/01-design.md) | 为什么是「轻量套壳」？边界、失败隔离、UI/图标/日志规范 |
+| [docs/02-architecture.md](docs/02-architecture.md) | 封装方式与运行机制：启动时序、就绪协议、cookie 反代、进程回收 |
+| [docs/03-layout.md](docs/03-layout.md) | 目录结构（源码树 + 运行时数据目录） |
+| [docs/04-build-and-run.md](docs/04-build-and-run.md) | 构建与启动流程、常见问题排查 |
+| [docs/05-configuration.md](docs/05-configuration.md) | `config.json` 全部配置项与镜像 |
+| [docs/06-dependencies-and-versioning.md](docs/06-dependencies-and-versioning.md) | 依赖分层与 **DSH 版本跟进机制** |
+
+给 AI agent 的操作说明见 [`AGENTS.md`](AGENTS.md)。
