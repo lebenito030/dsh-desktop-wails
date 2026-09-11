@@ -1,84 +1,165 @@
-# dsh-desktop-wails
+# DSH Desktop
 
-最小的 DSH（DeepSeek Harness）桌面套壳：Golang + Wails v2。单 exe，不嵌入任何 DSH 功能，只在壳层提供：
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-- **自举安装**：首次启动自动下载 Node.js 并安装 `@deepseek-ai/dsh` 到数据目录（进度条 + 日志）；
-- **托管 Web UI**：内置窗口加载 DSH Web 界面（经本地代理自动完成登录 token 兑换，无需浏览器）；
-- **重启 DSH**：顶部工具栏一键重启（自动适配新端口与新 token）；
-- **更新检查**：每次启动对比 npm registry，发现新版弹窗确认后自动更新并重启；
-- **托盘**：关窗隐藏到托盘，托盘菜单提供显示窗口 / 重启 / 检查更新 / 退出。Win32 原生实现（`tray_windows.go`），不依赖第三方 systray 库；排查日志写在数据目录的 `tray.log`；
-- **图标**：DSH logo（`build/dsh-logo.svg` 为源文件），托盘用 `build/tray.ico`（16/20/24/32/48），exe 与窗口用 `build/appicon.png` + `build/windows/icon.ico`；
-- **进程安全**：DSH 进程树挂 Windows Job Object（kill-on-close），套壳退出/被杀时自动回收，无孤儿进程。
+A lightweight desktop shell for **DSH (DeepSeek Harness)** — one executable that
+installs DSH, runs it, keeps it alive, and shows its web UI in a native window.
+Built with Go + [Wails v2](https://wails.io).
 
-## 构建
+**The shell never modifies DSH.** DSH is installed at runtime from npm
+(`@deepseek-ai/dsh`) and treated as a black box: the shell only talks to it over
+stdout (the ready line) and HTTP.
 
-依赖：Go 1.25+、Node 20+、Wails CLI v2。
+## What it does
+
+- **Self-bootstrapping** — on first launch it downloads Node.js and `npm install`s
+  DSH into its data directory, with progress + log overlay. No Node on your PATH needed.
+- **Managed web UI** — a frameless window loads DSH's own web UI through a local
+  reverse proxy that exchanges the login token for session cookies, so you never
+  see a browser or a token in a URL bar.
+- **Restart** — one click from the tray; the shell re-resolves the port and token.
+- **Update check** — compares the installed version against the npm registry on
+  every start; updating never breaks the currently installed version.
+- **Tray** — closing the window hides it to the tray; quitting is a deliberate act
+  from the tray menu.
+- **Process safety** — the DSH process tree is contained so nothing is left
+  running after the shell goes away.
+
+## Platform support
+
+| | Windows | macOS | Linux |
+|---|---|---|---|
+| Package | `.exe` (zip) | `.app` (zip, universal) | binary (tar.gz) |
+| Tray | native Win32 | `energye/systray` (Cocoa) | `energye/systray` (DBus / StatusNotifierItem) |
+| Close button | hide to tray | hide to tray | hide to tray |
+| Quit | tray → 退出 / Quit | tray → Quit | tray → Quit |
+| Process containment | Job Object (kernel-enforced) | process group | process group |
+
+Notes that matter:
+
+- **Linux / GNOME**: GNOME does **not** show StatusNotifierItem icons by default —
+  you need the *AppIndicator* extension (or a proxy such as
+  [snixembed](https://git.sr.ht/~steef/snixembed)). KDE and most other desktops
+  show it out of the box. Because an invisible tray would lock you out, the shell
+  **degrades gracefully**: if no tray is available, closing the window quits the
+  app instead of hiding it.
+- **Escape hatch**: `dsh-desktop --quit` asks the running instance to exit
+  (useful exactly in the case above). If no instance is running, it is a no-op.
+- **macOS**: the build is unsigned. First launch: right-click the app → *Open*,
+  or `xattr -cr /Applications/DSH\ Desktop.app`.
+- `dsh-desktop -h`-style service controls live in the tray; there is deliberately
+  no "stop service (keep shell running)" action — a shell without DSH has no
+  purpose. See `docs/01-design.md` ("功能准入") for the reasoning.
+
+## Build from source
+
+Requirements: Go 1.25+, Node 20+, Wails CLI v2, and on Linux the webview
+development packages.
 
 ```bash
-go install github.com/wailsapp/wails/v2/cmd/wails@latest
-wails build
-# 产物：build/bin/dsh-desktop.exe
+go install github.com/wailsapp/wails/v2/cmd/wails@v2.15.0
+
+# Linux only
+sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev
+
+wails build            # -> build/bin/dsh-desktop(.exe)
+wails doctor           # environment self-check
 ```
 
-## 运行时布局
+Wails v2 does not cross-compile; build on the platform you target.
+CI does exactly that — see `.github/workflows/`:
+`test.yml` runs `go vet` + `go test ./internal/...` on all three OSes,
+`release.yml` builds and publishes artifacts when you push a `v*` tag.
 
-数据目录优先 exe 旁的 `dsh-desktop-data\`（便携模式），不可写时回退 `%LOCALAPPDATA%\dsh-desktop-wails\`：
+### Icons
+
+All icons are generated, not hand-drawn:
+
+```bash
+python build/gen-icons.py    # needs numpy + Pillow
+```
+
+`build/gen-icons.py` documents every measurement behind the design (tray icon
+sizes were measured against real Windows taskbars) and emits `appicon.png`,
+`tray.ico`, `windows/icon.ico`, `tray.png` (Linux) and `tray-template.png`
+(macOS monochrome template — the system recolors it for light/dark menu bars).
+
+## Runtime layout
+
+The data directory sits **next to the executable** when that location is
+writable (portable mode); otherwise it falls back to
+`%LOCALAPPDATA%\dsh-desktop-wails`. **It is not configurable** — on purpose
+(see `docs/01-design.md`), because `config.json` lives inside the directory it
+would have to choose, which is circular.
 
 ```
-dsh-desktop-data/
-├── config.json          # 配置（首次运行生成）
+<dsh-desktop-data>/
+├── config.json          # shell configuration
+├── tray.log             # the only reliable diagnostic output (GUI process: no stderr)
 └── runtime/
-    ├── node/            # 官方 Node zip 解压（node.exe / node_modules/npm）
-    └── dsh/             # npm --prefix 安装的 @deepseek-ai/dsh
+    ├── node/            # Node.js, downloaded on first run
+    └── dsh/             # npm --prefix install target for @deepseek-ai/dsh
 ```
 
-## 配置（config.json）
+Useful consequences:
 
-| 字段 | 默认 | 说明 |
+- **Uninstall = delete the data directory.** The executable itself is stateless.
+- **Reset = delete `runtime/`** — the next start re-downloads Node and reinstalls DSH.
+- Your DSH user data (plugins, sessions, credentials) is **not** here; it lives in
+  `DSH_HOME` (default `~/.dsh`), which *is* configurable via `dshHome` below.
+  Deleting this directory never touches your sessions.
+
+## Configuration (`config.json`)
+
+Created with defaults on first run and rewritten (with all fields filled in) on
+every start. Read once at startup — restart the shell after changing it.
+
+| Field | Default | Meaning |
 |---|---|---|
-| `nodeVersion` | `22.20.0` | 自举下载的 Node 版本 |
-| `nodeDownloadUrl` | `https://nodejs.org/dist/v%s/node-v%s-win-x64.zip` | Node zip 模板，`%s` 两处填版本 |
-| `npmRegistry` | `https://registry.npmjs.org` | npm 镜像 |
-| `dshPackage` | `@deepseek-ai/dsh` | 安装的包名 |
-| `dshVersion` | `latest` | 安装的版本或 dist-tag |
-| `dshHome` | 空 | 覆盖 `DSH_HOME`：整棵搬走 DSH 的用户数据（插件/会话/凭据/设置）。壳自身的数据目录位置不可配置，由 exe 位置决定 |
+| `nodeVersion` | `22.20.0` | Node version downloaded on first run |
+| `nodeDownloadUrl` | `https://nodejs.org/dist/v%s/node-v%s-win-x64.zip` | URL template, both `%s` filled with the version |
+| `npmRegistry` | `https://registry.npmjs.org` | registry for `npm install` and update checks |
+| `dshPackage` | `@deepseek-ai/dsh` | package to install |
+| `dshVersion` | `latest` | version / dist-tag used **on first install only** (updates always use `latest`) |
+| `dshHome` | *(empty)* | overrides `DSH_HOME` — moves DSH's **entire** user-data tree (plugins, sessions, credentials, settings). See `docs/05-configuration.md` §5 before using it: it does not migrate existing data and it splits state from any client that leaves `DSH_HOME` unset |
 
-### 国内镜像示例
+Offline / China mirrors: point `nodeDownloadUrl` at
+`https://npmmirror.com/mirrors/node/v%s/node-v%s-win-x64.zip` and `npmRegistry`
+at `https://registry.npmmirror.com`.
 
-```json
-{
-  "nodeDownloadUrl": "https://npmmirror.com/mirrors/node/v%s/node-v%s-win-x64.zip",
-  "npmRegistry": "https://registry.npmmirror.com"
-}
-```
+## Architecture in one screen
 
-## 架构要点
+- **Ready protocol** — DSH prints `dsh web: <URL>` (with a login token) on stdout;
+  the supervisor parses that line and nothing else (`internal/dsh/supervisor.go`).
+- **cookie-in-proxy** — DSH sets `SameSite=Strict` cookies, which a cross-origin
+  iframe drops. The shell exchanges the token for cookies in Go and re-attaches
+  them on every request through a local reverse proxy (`internal/proxy`).
+- **Process containment** — Windows: a Job Object with kill-on-close, so even a
+  crashed shell leaves no orphan `node.exe`. macOS/Linux: a dedicated process
+  group killed with `SIGKILL` (`internal/dsh/job_*.go`).
+- **Two tray implementations** — native Win32 on Windows (message queues are
+  thread-private; the shell owns the whole chain), `energye/systray` elsewhere.
+  Rationale: `docs/02-architecture.md` §6.
 
-- **就绪协议**：DSH 启动后在 stdout 打印 `dsh web: <URL>`（含登录 token），监督器按行解析；
-- **cookie-in-proxy**：DSH 的会话 cookie 是 `SameSite=Strict`，跨站 iframe（wails.localhost → 127.0.0.1）中会被浏览器丢弃。壳在 Go 侧用就绪 URL 兑换 cookie，由本地反向代理（127.0.0.1 随机端口）对每个请求代附，并对 WebSocket 透明升级转发；iframe 一律指向代理地址；
-- **重启合并**：并发重启请求在 supervisor 内串行合并（stop → start → 重新兑换 cookie → 前端刷新 iframe）；
-- **托盘为什么自己实现**：Windows 的消息队列是线程私有的，`GetMessage` 只取调用线程的消息。第三方 systray 库隐含假设「创建窗口」与「消息循环」始终在同一 OS 线程，而 Go 调度器不保证 goroutine 留在原线程；一旦被挪走，托盘图标在但点击/菜单全无反应。这里由托盘 goroutine 首行 `runtime.LockOSThread` 把这层不确定性消掉，并用 `TPM_RETURNCMD` 直接取菜单选中项，规避阻塞回调期间的 `WM_COMMAND` 丢失。
-
-## 开发
+## Tests
 
 ```bash
-wails doctor   # 环境检查
-wails dev      # 热重载开发
+go test ./internal/...
 ```
 
-前端为 Vite + 原生 TypeScript（`frontend/`），Go 侧模块在 `internal/`：`config`（配置）、`bootstrap`（下载/解压/npm 安装）、`dsh`（supervisor + Job Object）、`proxy`（cookie 反代）、`update`（registry 版本对比）。
+The tests cover the pieces that must not silently rot: the ready-line contract,
+data-directory layout, the config write-back behaviour, zip root stripping, the
+npm semver comparison and the registry client.
 
-## 文档
+## Documentation
 
-完整的设计规范与开发文档在 [`docs/`](docs/README.md)：
-
-| 文档 | 回答的问题 |
+| Document | Answers |
 |---|---|
-| [docs/01-design.md](docs/01-design.md) | 为什么是「轻量套壳」？边界、失败隔离、UI/图标/日志规范 |
-| [docs/02-architecture.md](docs/02-architecture.md) | 封装方式与运行机制：启动时序、就绪协议、cookie 反代、进程回收 |
-| [docs/03-layout.md](docs/03-layout.md) | 目录结构（源码树 + 运行时数据目录） |
-| [docs/04-build-and-run.md](docs/04-build-and-run.md) | 构建与启动流程、常见问题排查 |
-| [docs/05-configuration.md](docs/05-configuration.md) | `config.json` 全部配置项与镜像 |
-| [docs/06-dependencies-and-versioning.md](docs/06-dependencies-and-versioning.md) | 依赖分层与 **DSH 版本跟进机制** |
+| [docs/01-design.md](docs/01-design.md) | why a thin shell; scope rules; UI / icon / logging conventions (Chinese) |
+| [docs/02-architecture.md](docs/02-architecture.md) | startup sequence, ready protocol, cookie proxy, process containment, tray (Chinese) |
+| [docs/03-layout.md](docs/03-layout.md) | source tree + runtime data layout (Chinese) |
+| [docs/04-build-and-run.md](docs/04-build-and-run.md) | build & troubleshooting (Chinese) |
+| [docs/05-configuration.md](docs/05-configuration.md) | every `config.json` field (Chinese) |
+| [docs/06-dependencies-and-versioning.md](docs/06-dependencies-and-versioning.md) | dependency layers, how DSH updates are tracked (Chinese) |
 
-给 AI agent 的操作说明见 [`AGENTS.md`](AGENTS.md)。
+`AGENTS.md` contains the working rules for AI coding agents.
