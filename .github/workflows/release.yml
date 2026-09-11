@@ -63,13 +63,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev
 
-      # windows-latest 镜像自带 NSIS，这里只做防御性补装。
-      - name: Install NSIS (if missing)
+      # windows-latest 镜像自带 NSIS。要点：choco 装完后 **不会** 自动进 PATH，
+      # 而 wails 只在 PATH 里找 makensis，找不到会静默跳过安装器生成（只打一行
+      # 警告、退出码仍为 0），所以这里必须把目录写进 GITHUB_PATH。
+      - name: Install NSIS
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $makensis = Join-Path ${env:ProgramFiles(x86)} 'NSIS\makensis.exe'
-          if (-not (Test-Path $makensis)) { choco install nsis -y }
+          $nsisDir = Join-Path ${env:ProgramFiles(x86)} 'NSIS'
+          if (-not (Test-Path (Join-Path $nsisDir 'makensis.exe'))) {
+            choco install nsis -y --no-progress
+          }
+          Add-Content $env:GITHUB_PATH $nsisDir
 
       - name: Install wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.15.0
@@ -127,10 +132,12 @@ jobs:
         run: |
           cd build/bin
           if [ "$RUNNER_OS" = "macOS" ]; then
-            ditto -c -k --sequesterRiff --keepParent dsh-desktop.app "../../${{ matrix.asset }}"
+            # ditto 的 --sequesterRiff 在新版 macOS 上已不存在，无需它。
+            ditto -c -k --keepParent dsh-desktop.app "../../${{ matrix.asset }}"
           elif [ "$RUNNER_OS" = "Windows" ]; then
             7z a "../../${{ matrix.asset }}" dsh-desktop.exe
-            cp dsh-desktop-amd64-installer.exe "../../${{ matrix.setup }}"
+            # 安装器文件名由 NSIS 模板决定，用通配避免与命名规则耦合。
+            cp dsh-desktop-*-installer.exe "../../${{ matrix.setup }}"
           else
             tar -czf "../../${{ matrix.asset }}" dsh-desktop
           fi
