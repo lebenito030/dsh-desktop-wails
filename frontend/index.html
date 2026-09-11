@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8"/>
+    <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+    <title>DSH Desktop</title>
+</head>
+<body>
+<div id="app">
+    <!-- DSH Web UI 铺满整个窗口；src 由 Go 侧就绪 URL 事件驱动设置 -->
+    <iframe id="dsh-frame" title="DSH"></iframe>
+
+    <!-- 右上角浮动窗口控制按钮（配色跟随 DSH 主题） -->
+    <div id="win-controls" data-theme="light">
+        <button id="btn-min" class="win-btn" title="最小化">
+            <svg width="10" height="10" viewBox="0 0 10 10"><rect x="0" y="4.5" width="10" height="1" fill="currentColor"/></svg>
+        </button>
+        <button id="btn-max" class="win-btn" title="最大化/还原">
+            <svg id="ico-max" width="10" height="10" viewBox="0 0 10 10"><rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor"/></svg>
+            <svg id="ico-restore" class="hidden" width="10" height="10" viewBox="0 0 10 10">
+                <rect x="0.5" y="2.5" width="7" height="7" fill="none" stroke="currentColor"/>
+                <path d="M2.5 2.5 V0.5 H9.5 V7.5 H7.5" fill="none" stroke="currentColor"/>
+            </svg>
+        </button>
+        <button id="btn-close" class="win-btn win-close" title="隐藏到托盘">
+            <svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 0 L10 10 M10 0 L0 10" stroke="currentColor" stroke-width="1"/></svg>
+        </button>
+    </div>
+
+    <!-- 顶部细拖动条：贯通窗口顶部（不遮挡交互，仅边框高度） -->
+    <div id="drag-strip" title=""></div>
+
+    <!-- 首次安装 / 更新进度浮层 -->
+    <div id="overlay" class="hidden">
+        <div class="card">
+            <h2 id="overlay-title">正在准备 DSH 运行时</h2>
+            <div id="progress-row">
+                <div class="bar"><div id="progress-fill"></div></div>
+                <span id="progress-pct"></span>
+            </div>
+            <pre id="overlay-log"></pre>
+            <div class="actions">
+                <button id="btn-retry" class="hidden">重试</button>
+                <button id="btn-overlay-close" class="hidden">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 更新确认弹层 -->
+    <div id="update-modal" class="hidden">
+        <div class="card">
+            <h2>发现 DSH 新版本</h2>
+            <p id="update-desc"></p>
+            <div class="actions">
+                <button id="btn-update-now">更新并重启</button>
+                <button id="btn-update-later" class="secondary">暂不更新</button>
+            </div>
+        </div>
+    </div>
+</div>
+<script src="./src/main.ts" type="module"></script>
+</body>
+</html>
