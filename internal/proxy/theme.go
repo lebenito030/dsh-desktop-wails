@@ -43,27 +43,36 @@ func injectThemeProbe(body string) string {
       post({ type: "dsh-desktop-theme", theme: theme, bg: bg });
     }
   }
-  /* 侧栏探测：DSH 的 AppFrame 用 CSS grid 三列布局（ui-layout
-     columns.ts），侧栏宽度由 computeColumns() 决定：展开态夹在
-     264~420px，收起态为 56px 图标轨，窄视口自动收起。这里不猜
-     选择器，直接量"贴左缘、通高"的首列实际渲染宽度。 */
+  /* 侧栏探测：DSH 的 AppFrame 把 computeColumns() 的结果直接写在
+     frame 容器的内联 style.gridTemplateColumns 上（第一列即侧栏
+     轨道，形如 "280px minmax(0, 1fr) 0px"）。读它最可靠：展开
+     264~420、收起 56（ui-layout columns.ts 常量）。 */
   var lastSidebarW = -1;
   function detectSidebar() {
     var w = 0;
-    var vp = window.innerWidth;
-    var cands = document.querySelectorAll('body *');
-    for (var i = 0; i < cands.length; i++) {
-      var r = cands[i].getBoundingClientRect();
-      if (r.left <= 1 && r.top <= 1 && r.bottom >= window.innerHeight - 1 && r.width > 8) {
-        w = Math.round(r.width);
-        break; // 第一个命中即最外层首列
+    var all = document.querySelectorAll('[style]');
+    for (var i = 0; i < all.length; i++) {
+      var cols = all[i].style && all[i].style.gridTemplateColumns;
+      if (!cols) continue;
+      var m = cols.match(/^\s*(\d+(?:\.\d+)?)px/);
+      if (m && parseFloat(m[1]) > 0 && parseFloat(m[1]) < window.innerWidth) {
+        w = Math.round(parseFloat(m[1]));
+        break;
       }
     }
-    // 合理性校验（对齐 DSH 常量）：56 收起轨 或 264~420 展开区间；
-    // 命中不了合法几何时按状态推断，避免拖动条落在错误位置。
-    var legal = (w === 56) || (w >= 264 && w <= 420);
-    if (!legal) w = w > 0 && w < 264 ? 56 : 280;
-    if (w !== lastSidebarW) {
+    if (w === 0) {
+      // 兜底：贴左缘、通高的第一个非全宽子列实测宽度。
+      var bodyKids = document.querySelectorAll('body *');
+      for (var j = 0; j < bodyKids.length; j++) {
+        var r = bodyKids[j].getBoundingClientRect();
+        if (r.left <= 1 && r.top <= 1 && r.bottom >= window.innerHeight - 1
+            && r.width >= 40 && r.width < window.innerWidth - 40) {
+          w = Math.round(r.width);
+          break;
+        }
+      }
+    }
+    if (w !== lastSidebarW && w > 0) {
       lastSidebarW = w;
       post({ type: "dsh-desktop-sidebar", width: w });
     }

@@ -21,7 +21,8 @@ type trayController struct {
 
 func setupTray(app *App) {
 	tc := &trayController{app: app}
-	// 双击托盘 = 聚焦显示主窗口；左键单击也唤起。
+	// 左键单击/双击 = 聚焦显示主窗口；右键 = 弹出菜单（energye/systray
+	// 的默认行为：不设 onRClick 时右键自动 ShowMenu）。
 	systray.SetOnClick(func(menu systray.IMenu) { tc.showWindow() })
 	systray.SetOnDClick(func(menu systray.IMenu) { tc.showWindow() })
 	systray.Run(tc.onReady, nil)
@@ -39,15 +40,21 @@ func (tc *trayController) onReady() {
 	systray.AddSeparator()
 	mQuit := systray.AddMenuItem("退出", "停止 DSH 并退出")
 
-	mShow.Click(func() { tc.showWindow() })
-	mRestart.Click(func() {
+	// 菜单回调里全部异步化：TrackPopupMenu 阻塞托盘消息循环期间，
+	// 直接在回调里同步执行 Stop/Start（会等子进程退出）会卡住循环、
+	// 造成后续 WM_COMMAND 丢失（表现为菜单"点了没反应"）。
+	dispatch := func(fn func()) func() {
+		return func() { go fn() }
+	}
+	mShow.Click(dispatch(func() { tc.showWindow() }))
+	mRestart.Click(dispatch(func() {
 		if err := tc.app.RestartDSH(); err != nil {
 			wruntime.LogErrorf(tc.app.ctx, "托盘重启失败: %v", err)
 		}
-	})
-	mStop.Click(func() { tc.app.StopDSH() })
-	mUpdate.Click(func() { tc.app.CheckUpdate() })
-	mQuit.Click(func() { tc.app.QuitApp() })
+	}))
+	mStop.Click(dispatch(func() { tc.app.StopDSH() }))
+	mUpdate.Click(dispatch(func() { tc.app.CheckUpdate() }))
+	mQuit.Click(dispatch(func() { tc.app.QuitApp() }))
 }
 
 func (tc *trayController) showWindow() {
