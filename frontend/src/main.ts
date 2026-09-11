@@ -37,8 +37,10 @@ const btnUpdateNow = document.getElementById('btn-update-now') as HTMLButtonElem
 const btnUpdateLater = document.getElementById('btn-update-later') as HTMLButtonElement;
 
 // ---- 就绪 URL：iframe 加载（含登录 token 的地址经 Go 侧代理处理） ----
-function setIframeUrl(url: string): void {
-    if (frame.src !== url) {
+// reload: 重启就绪路径必须传 true——代理端口跨重启不变，URL 同值，靠
+// 重设 src 强制 iframe 重载，装插件/升级后的新前端资产才能生效。
+function setIframeUrl(url: string, reload = false): void {
+    if (reload || frame.src !== url) {
         frame.src = url;
     }
 }
@@ -95,7 +97,9 @@ EventsOn('runtime:status', (_payload: { status: string; detail: string }) => {
 });
 
 EventsOn('runtime:url', (url: string) => {
-    setIframeUrl(url);
+    // runtime:url 只在 DSH 就绪（含重启后）时发出；同值也要重载，
+    // 否则 iframe 停在旧实例的页面上，插件/升级的新前端不生效。
+    setIframeUrl(url, true);
     overlay.classList.add('hidden');
 });
 
