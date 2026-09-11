@@ -18,15 +18,15 @@ import (
 // App 是绑定到前端的壳应用：串起 bootstrap / supervisor / update，
 // 并把它们的状态经 Wails 事件推给前端。
 type App struct {
-	ctx       context.Context
-	cfg       config.Config
-	paths     dsh.Paths
-	inst      *bootstrap.Installer
-	sup       *dsh.Supervisor
-	upd       update.Checker
-	prx       *proxy.Proxy
-	updating  bool
-	quitting  bool
+	ctx      context.Context
+	cfg      config.Config
+	paths    dsh.Paths
+	inst     *bootstrap.Installer
+	sup      *dsh.Supervisor
+	upd      update.Checker
+	prx      *proxy.Proxy
+	updating bool
+	quitting bool
 }
 
 func NewApp() *App {
@@ -314,8 +314,9 @@ func (a *App) activateFromSecondInstance() {
 	wruntime.WindowShow(a.ctx)
 }
 
-// shutdown 壳退出前的清理：停 DSH（Job 全树回收）。
+// shutdown 壳退出前的清理：摘掉托盘图标、停 DSH（Job 全树回收）。
 func (a *App) shutdown(ctx context.Context) {
+	trayShutdown()
 	if a.sup != nil {
 		_ = a.sup.Stop(ctx, dsh.StatusStopped)
 	}
@@ -324,6 +325,7 @@ func (a *App) shutdown(ctx context.Context) {
 // QuitApp 托盘「退出」调用：置退出标志并关窗，走 OnShutdown 清理路径。
 func (a *App) QuitApp() {
 	a.quitting = true
+	trayShutdown()
 	if a.ctx != nil {
 		wruntime.Quit(a.ctx)
 	}
