@@ -7,6 +7,13 @@
   "frontend:dev:watcher": "npm run dev",
   "frontend:dev:serverUrl": "auto",
   "author": {
-    "name": "dsh-desktop-wails"
+    "name": "lebenito030"
+  },
+  "info": {
+    "productName": "DSH Desktop",
+    "productVersion": "0.0.1",
+    "companyName": "lebenito030",
+    "copyright": "Copyright © 2026 lebenito030 · MIT License",
+    "comments": "Lightweight desktop shell for DeepSeek Harness (DSH)"
   }
 }

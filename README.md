@@ -70,6 +70,9 @@ Wails v2 does not cross-compile; build on the platform you target.
 CI does exactly that — see `.github/workflows/`:
 `test.yml` runs `go vet` + `go test ./internal/...` on all three OSes,
 `release.yml` builds and publishes artifacts when you push a `v*` tag.
+Release assets are a portable archive per platform plus a Windows NSIS
+installer. macOS builds are codesigned and notarized **only if** the Apple
+secrets are configured; otherwise they ship unsigned (see the note above).
 
 ### Icons
 

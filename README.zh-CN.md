@@ -58,7 +58,9 @@ wails doctor           # 环境自检
 
 Wails v2 **不支持交叉编译**，请在目标平台上构建。CI 就是这么做的——见
 `.github/workflows/`：`test.yml` 在三个系统上跑 `go vet` + `go test ./internal/...`，
-`release.yml` 在推送 `v*` tag 时构建并发布产物。
+`release.yml` 在推送 `v*` tag 时构建并发布产物。发布产物是各平台的便携压缩包
+外加 Windows NSIS 安装器；macOS 仅在配置了 Apple 相关 secrets 时才会签名/公证，
+否则保持未签名（见上文）。
 
 ### 图标
 
