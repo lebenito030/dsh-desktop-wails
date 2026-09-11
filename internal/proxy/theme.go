@@ -6,17 +6,25 @@ import (
 	"compress/gzip"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
 // themeProbeMarker 标识注入已存在，避免重复注入。
 const themeProbeMarker = "dshDesktopThemeProbe"
 
+// shellTopBarPx 是壳顶部拖动条的高度。**必须与前端 style.css 的 --titlebar-h 一致**。
+const shellTopBarPx = 32
+
 // injectThemeProbe 把上报脚本插到 </head> 前（无 </head> 时插到页首）。
 // 上报两类信息给壳（iframe 父页面）：
-//   1. 主题：检测文档背景亮度，供窗口按钮切换配色；
-//   2. 侧栏几何：侧栏宽度变化时上报，供壳动态移动顶部拖动条，
-//      避免遮挡侧栏折叠按钮。
+//  1. 主题：检测文档背景亮度，供窗口按钮切换配色；
+//  2. 侧栏几何：侧栏宽度变化时上报，供壳动态移动顶部拖动条，
+//     避免遮挡侧栏折叠按钮。
+//
+// 同时按「侧栏右侧、贴顶通高的最外层列」给 DSH 的列补 padding-top，
+// 为顶部拖动条让位（**纯结构探测，不依赖 DSH 的类名**——发布产物走 CSS
+// Modules，类名会被 hash，匹配类名注定不可靠）。
 func injectThemeProbe(body string) string {
 	script := `<script data-` + themeProbeMarker + `>
 (function(){
@@ -75,17 +83,59 @@ func injectThemeProbe(body string) string {
     if (w !== lastSidebarW && w > 0) {
       lastSidebarW = w;
       post({ type: "dsh-desktop-sidebar", width: w });
+      detectColumns(w);
+    }
+  }
+  /* 列让位（纯结构探测，不依赖类名）：给「侧栏右侧、贴顶通高」的最外层列
+     补 padding-top，为壳的顶部拖动条让位。
+     必须幂等：React 重渲染会抹掉内联样式，观察器会在下个节拍补回来。
+     只保留最外层候选（去掉互为祖先的），避免嵌套容器被叠加两次。 */
+  var SHELL_TOP = ` + strconv.Itoa(shellTopBarPx) + `;
+  var padded = [];
+  function detectColumns(sidebarW) {
+    if (!sidebarW || sidebarW <= 0) return;
+    var all = document.querySelectorAll("body *");
+    var cands = [];
+    for (var i = 0; i < all.length; i++) {
+      var el = all[i];
+      var r = el.getBoundingClientRect();
+      if (r.width < 40 || r.width >= window.innerWidth - 40) continue;
+      if (r.left < sidebarW - 1) continue;
+      if (r.top > 1 || r.bottom < window.innerHeight - 1) continue;
+      var cs = getComputedStyle(el);
+      if (cs.position === "fixed" || cs.position === "absolute") continue;
+      cands.push(el);
+    }
+    var tops = [];
+    for (var j = 0; j < cands.length; j++) {
+      var outermost = true;
+      for (var k = 0; k < cands.length; k++) {
+        if (k !== j && cands[k].contains(cands[j])) { outermost = false; break; }
+      }
+      if (outermost) tops.push(cands[j]);
+    }
+    for (var a = 0; a < tops.length; a++) {
+      if (tops[a].style.paddingTop !== SHELL_TOP + "px") tops[a].style.paddingTop = SHELL_TOP + "px";
+    }
+    for (var b = padded.length - 1; b >= 0; b--) {
+      if (tops.indexOf(padded[b]) === -1) {
+        padded[b].style.paddingTop = "";
+        padded.splice(b, 1);
+      }
+    }
+    for (var c = 0; c < tops.length; c++) {
+      if (padded.indexOf(tops[c]) === -1) padded.push(tops[c]);
     }
   }
   function start() {
     detectTheme(); detectSidebar();
     var t = document.documentElement;
-    new MutationObserver(function(){ setTimeout(function(){ detectTheme(); detectSidebar(); }, 50); })
+    new MutationObserver(function(){ setTimeout(function(){ detectTheme(); detectSidebar(); detectColumns(lastSidebarW); }, 50); })
       .observe(t, { attributes: true, attributeFilter: ["class","data-theme","style"], childList: true, subtree: true });
     var mq = window.matchMedia("(prefers-color-scheme: dark)");
     try { mq.addEventListener("change", function(){ setTimeout(detectTheme, 50); }); } catch(e) {}
-    window.addEventListener("resize", function(){ setTimeout(detectSidebar, 80); });
-    window.addEventListener("load", function(){ setTimeout(function(){ detectTheme(); detectSidebar(); }, 150); });
+    window.addEventListener("resize", function(){ setTimeout(function(){ detectSidebar(); detectColumns(lastSidebarW); }, 80); });
+    window.addEventListener("load", function(){ setTimeout(function(){ detectTheme(); detectSidebar(); detectColumns(lastSidebarW); }, 150); });
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
   else start();

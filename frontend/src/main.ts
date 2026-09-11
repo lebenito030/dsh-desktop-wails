@@ -43,16 +43,18 @@ function setIframeUrl(url: string): void {
     }
 }
 
-// ---- 主题跟随：代理向 DSH 页面注入探针，经 postMessage 上报 ----
-// （iframe 跨源，壳自己读不到页面配色，只能让页面自己上报）
+// ---- 主题跟随 + 侧栏几何：代理向 DSH 页面注入探针，经 postMessage 上报 ----
+// （iframe 跨源，壳自己读不到页面配色与布局，只能让页面自己上报）
 window.addEventListener('message', (ev) => {
     if (ev.origin !== new URL(frame.src).origin) return;
-    const data = ev.data as { type?: string; theme?: string };
+    const data = ev.data as { type?: string; theme?: string; width?: number };
     if (!data) return;
     if (data.type === 'dsh-desktop-theme' && (data.theme === 'dark' || data.theme === 'light')) {
-        // 标题栏与右上角按钮的配色都跟随 DSH 主题
-        document.body.dataset.theme = data.theme;
         winControls.dataset.theme = data.theme;
+    } else if (data.type === 'dsh-desktop-sidebar' && typeof data.width === 'number') {
+        // 侧栏实际渲染宽度（对齐 DSH ui-layout 常量：56 收起 / 264~420 展开）。
+        // 拖动条起点 = 侧栏宽度 + 余量，确保折叠按钮与顶栏内容可点。
+        dragStrip.style.left = (data.width + 8) + 'px';
     }
 });
 

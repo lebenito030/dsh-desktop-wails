@@ -1,6 +1,8 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
-:root { --titlebar-h: 32px; } /* 壳标题栏高度：DSH 内容从其下开始 */
+/* 壳拖动条高度。**必须与 internal/proxy/theme.go 的 shellTopBarPx 一致**：
+   注入到 DSH 页面的 CSS 会让中列/右列让出同样的高度。 */
+:root { --titlebar-h: 32px; }
 
 html, body { height: 100%; }
 
@@ -15,39 +17,37 @@ body {
 
 .hidden { display: none !important; }
 
-/* ---- DSH iframe：顶部让出标题栏高度，自己的顶栏不再被壳的拖动条遮住 ---- */
+/* ---- DSH iframe 铺满整个窗口 ---- */
 #dsh-frame {
     position: absolute;
-    top: var(--titlebar-h);
-    left: 0;
+    inset: 0;
     width: 100%;
-    height: calc(100% - var(--titlebar-h));
+    height: 100%;
     border: none;
     display: block;
     background: #fff;
     --wails-draggable: no-drag;
 }
 
-/* ---- 顶部标题栏：壳独占、贯通全宽 ---- */
-/* 以前是浮在 DSH 顶栏上的隐形条（靠上报侧栏宽度让位），两边互相遮挡；
-   现在壳拥有整行，DSH 内容整体下移，谁也不挡谁。配色跟随 DSH 主题。 */
+/* ---- 顶部拖动条：透明地浮在 DSH 顶栏上 ---- */
+/* DSH 的中列/右列已由壳注入的 CSS 让出 32px（见 theme.go），所以拖动条
+   落在「空出来的让位区」上，视觉与 DSH 顶栏无缝。左右边界动态让位：
+   左 = 侧栏宽度 + 余量（不遮折叠按钮），右 = 窗口按钮区。 */
 #drag-strip {
     position: absolute;
     top: 0;
-    left: 0;
-    right: 0;
+    left: 300px; /* 初始值；注入脚本上报侧栏宽度后由 main.ts 动态覆盖 */
+    right: 135px; /* 让出右上角按钮区域 */
     height: var(--titlebar-h);
     --wails-draggable: drag;
     z-index: 5;
     cursor: default;
     user-select: none;
-    background: #fff;
 }
-body[data-theme="dark"] #drag-strip { background: #1e222d; }
 
 /* ---- 窗口边缘缩放把手 ---- */
 /* Wails 的边缘缩放靠父文档 mousemove 做边缘检测（borderThickness 固定 6px）；
-   把手必须正好是最外侧 6px 才能命中。z-index 高于标题栏：最外侧 6px 用于
+   把手必须正好是最外侧 6px 才能命中。z-index 高于拖动条：最外沿 6px 用于
    缩放，其下才是拖动——与原生标题栏的行为一致。 */
 .edge {
     position: absolute;
