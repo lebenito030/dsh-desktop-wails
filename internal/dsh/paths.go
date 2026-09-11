@@ -39,8 +39,12 @@ func ResolvePaths(root string) Paths {
 	}
 }
 
-// ResolveDataDir 决定数据目录：config.DataDir > exe 旁 > %LOCALAPPDATA% 回退。
-// 返回实际选中的目录与是否为便携模式。dirHint 非空时直接采用。
+// ResolveDataDir 决定数据目录：exe 旁 dsh-desktop-data（可写则用，便携模式）>
+// %LOCALAPPDATA%\dsh-desktop-wails 回退。返回实际选中的目录与是否为便携模式。
+//
+// dirHint 是外部指定入口（非空则直接采用）。当前唯一调用方 app.go 传空串：
+// 本项目**有意不提供「自定义数据目录」功能**（配置项 dataDir 已按
+// docs/01-design.md 的「功能准入」裁掉），留这个参数只为标明扩展点。
 func ResolveDataDir(dirHint string) (string, bool, error) {
 	if dirHint != "" {
 		if err := os.MkdirAll(dirHint, 0o755); err != nil {

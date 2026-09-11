@@ -29,10 +29,10 @@ type Config struct {
 	DshPackage string `json:"dshPackage"`
 	// DshVersion 是安装的版本，空串或 "latest" 表示 dist-tag latest。
 	DshVersion string `json:"dshVersion"`
-	// DshHome 覆盖 DSH_HOME 环境变量；空串表示不覆盖。
+	// DshHome 覆盖 DSH_HOME 环境变量；空串表示不覆盖（DSH 侧会把空/纯空白视为未设置）。
+	// 它搬的是 DSH 的**全部用户数据**（插件及其依赖、会话、凭据、设置、皮肤），
+	// 整棵树一起走，没有「插件放这、会话放那」的单目录粒度。与壳自身的数据目录无关。
 	DshHome string `json:"dshHome"`
-	// DataDir 强制指定数据目录；空串表示自动探测（exe 旁，回退 LOCALAPPDATA）。
-	DataDir string `json:"dataDir"`
 }
 
 // Default 返回内置默认配置。

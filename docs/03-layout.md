@@ -70,9 +70,16 @@ DSH 的运行时**不在仓库里**，也不在 exe 内部——它在数据目�
 
 **解析顺序**（`internal/dsh/paths.go` 的 `ResolveDataDir`）：
 
-1. `config.json` 的 `dataDir`（非空则直接用）；
-2. exe 同级的 `dsh-desktop-data/`（**便携模式**，可写时采用，exe 改名不影响这个名字）；
-3. `%LOCALAPPDATA%\dsh-desktop-wails\`（上面不可写时兜底，例如装在 Program Files）。
+1. exe 同级的 `dsh-desktop-data/`（**便携模式**，可写时采用；目录名固定，exe 改名不影响）；
+2. `%LOCALAPPDATA%\dsh-desktop-wails\`（上面不可写时兜底，例如装在 Program Files）。
+
+判据是**「exe 所在目录能不能写」**（真去建目录并写删一个 `.write-probe` 探针文件），
+不是「装在哪」。有个副作用要留意：同一份 exe 换权限运行（普通用户 vs 管理员）可能解析出
+**两个不同的数据目录**，于是各自下载一份 runtime、各有一份 `config.json`——遇到
+「配置改了没生效」「版本对不上」先查这里。
+
+> **位置有意不可配置。** 曾计划提供 `config.json` 的 `dataDir`，已按「只做套壳，
+> 不做多余功能」裁掉，理由与已裁功能清单见 [01-design.md](01-design.md) 的「功能准入」。
 
 ```
 <数据目录>/
@@ -92,6 +99,9 @@ DSH 的运行时**不在仓库里**，也不在 exe 内部——它在数据目�
 要点：
 
 - **卸载 = 删掉数据目录**（连同 config 一起）。exe 本身无状态。
+- **别与 DSH 自己的数据目录混淆**：DSH 的用户数据（插件及其依赖、会话、凭据、设置、皮肤）
+  在 `DSH_HOME`（默认 `~/.dsh`，可用 `config.json` 的 `dshHome` 改），跟这里的数据目录是
+  两处。**删这里不会丢用户数据**，删那里会。见 [05](05-configuration.md) 第 5、6 节。
 - `runtime/` 可以整个删掉重建，下次启动会重新自举——这是恢复"环境搞坏了"的兜底手段。
 - Node 的下载临时文件 `runtime/node-download.zip` 在解压后即删除。
 - 数据目录**不要提交**（`.gitignore` 已覆盖 `dsh-desktop-data/`）。

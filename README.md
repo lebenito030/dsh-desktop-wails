@@ -41,8 +41,7 @@ dsh-desktop-data/
 | `npmRegistry` | `https://registry.npmjs.org` | npm 镜像 |
 | `dshPackage` | `@deepseek-ai/dsh` | 安装的包名 |
 | `dshVersion` | `latest` | 安装的版本或 dist-tag |
-| `dshHome` | 空 | 覆盖 `DSH_HOME` 环境变量 |
-| `dataDir` | 空 | 强制指定数据目录 |
+| `dshHome` | 空 | 覆盖 `DSH_HOME`：整棵搬走 DSH 的用户数据（插件/会话/凭据/设置）。壳自身的数据目录位置不可配置，由 exe 位置决定 |
 
 ### 国内镜像示例
 

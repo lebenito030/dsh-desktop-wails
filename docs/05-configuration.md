@@ -19,8 +19,10 @@
 | `npmRegistry` | string | `https://registry.npmjs.org` | `npm install` 用的 `--registry`；同时决定更新检查查询的 registry |
 | `dshPackage` | string | `@deepseek-ai/dsh` | 安装的 npm 包名 |
 | `dshVersion` | string | `latest` | **首次安装**使用的版本或 dist-tag；空串按 `latest` 处理。见第 4 节的重要区别 |
-| `dshHome` | string | `""`（空） | 非空时作为 `DSH_HOME` 环境变量传给 DSH 子进程；空表示不覆盖、沿用系统值 |
-| `dataDir` | string | `""`（空） | 强制指定数据目录；空表示自动探测（exe 旁 → 不可写则 `%LOCALAPPDATA%`） |
+| `dshHome` | string | `""`（空） | 非空时作为 `DSH_HOME` 环境变量传给 DSH 子进程，**搬的是 DSH 的全部用户数据**（插件及其依赖、会话、凭据、设置、皮肤）；空表示不覆盖、沿用系统默认 `~/.dsh`。详见第 5 节 |
+
+> **没有 `dataDir`。** 壳自己的数据目录（`runtime/` 那几百 MB）位置**不可配置**，
+> 由 exe 位置与可写性决定，见 [03](03-layout.md) 第 2 节与本文第 6 节。
 
 ## 3. 国内 / 内网镜像示例
 
@@ -31,12 +33,11 @@
   "npmRegistry": "https://registry.npmmirror.com",
   "dshPackage": "@deepseek-ai/dsh",
   "dshVersion": "latest",
-  "dshHome": "",
-  "dataDir": ""
+  "dshHome": ""
 }
 ```
 
-改完这两个字段即可全程不访问公网（Node zip 与 npm 包都走镜像）。
+改掉 `nodeDownloadUrl` 与 `npmRegistry` 这两个字段即可全程不访问公网（Node zip 与 npm 包都走镜像）。
 
 ## 4. `dshVersion` 与更新机制的边界（容易误解）
 
@@ -55,3 +56,51 @@
 
 如果你需要"锁定版本且不提示更新"的行为，那是**功能改动**，要先读
 [01-design.md](01-design.md) 确认边界后再动 `internal/update`。
+
+## 5. `dshHome`：DSH 用户数据的落点（唯一与「位置」有关的配置项）
+
+非空时，壳把它作为 `DSH_HOME` 环境变量传给 DSH 子进程（见 `app.go`）。
+
+**搬的是整棵树。** DSH 侧由 `@deepseek-ai/dsh-home-paths` 解析主目录，它的设计原则是
+「harness 的所有用户数据都位于同一个根目录下」，所以**没有**「插件放这、会话放那」的
+单目录粒度：
+
+| 一起搬走的 | 说明 |
+|---|---|
+| `profiles/` | 插件及其依赖（pnpm 装），体积大头，实测 GB 级 |
+| `sessions/` | 会话记录 |
+| `.credentials.yaml` | 登录凭据 |
+| `settings.yaml` | 设置 |
+| `skins/`、`attachments/`、`storages/` 等 | 皮肤、附件与其它本地存储 |
+
+**解析优先级**（DSH 侧）：显式配置 > `$DSH_HOME` > `~/.dsh`；空或纯空白的 `$DSH_HOME`
+视为未设置。所以本字段填 `""` 就是「不覆盖」，与 DSH 的语义天然对齐。
+
+注意事项：
+
+- **不会自动迁移。** 设了新路径后旧 `~/.dsh` 原样留在原地，DSH 会在新位置从零初始化：
+  插件要重装、会话看不到、可能要重新登录。想保住存量就先把 `~/.dsh` 整份拷过去再改配置。
+- **会与其它 DSH 客户端分裂。** 未设 `DSH_HOME` 的客户端（例如 Electron 版桌面端）仍用
+  `~/.dsh`，于是两边各持一套会话与插件。**想共享就别设。**
+- **填绝对路径。** 相对路径按子进程的工作目录解析，容易出意外。
+- **怎么确认生效**：DSH 面向用户展示主目录时会把配置过的 home 渲染成 `$DSH_HOME`
+  而不是真实绝对路径（它有意不泄露机器路径）——界面上显示成符号即说明吃上了。
+
+## 6. 壳的数据目录位置不可配置（有意为之）
+
+壳自己的数据目录（`config.json`、`tray.log`、`runtime/node`、`runtime/dsh`）**没有**配置项，
+位置完全由「exe 在哪 + 那个目录能不能写」决定，见 [03](03-layout.md) 第 2 节。
+
+曾有一个 `dataDir` 字段声称可以强制指定，但它从未接进 `ResolveDataDir`（而且 `config.json`
+本身住在数据目录里，自我指涉是循环依赖）。现按「只做套壳，不做多余功能」把该字段
+**从代码与文档里一并删除**，理由与已裁功能清单见 [01-design.md](01-design.md) 的「功能准入」。
+
+两者别混淆：
+
+| | 壳的数据目录 | DSH_HOME（由 `dshHome` 决定）|
+|---|---|---|
+| 装什么 | 自举下载的 Node 与 DSH 本体 | 插件、会话、凭据、设置、皮肤 |
+| 删了会怎样 | 下次启动重新下载，**可再生** | **数据丢失** |
+| 位置 | 由 exe 位置决定，不可配 | 由 `dshHome` 决定 |
+
+想省 C 盘空间，该动的是 `dshHome`（用户数据通常才是大头）。

@@ -12,15 +12,21 @@
 
 1. **不要修改 / patch / fork / 注入 DSH 本体**，包括数据目录里 `runtime/dsh/node_modules/@deepseek-ai/dsh`
    下的任何文件。DSH 是运行时从 npm 装进来的外部依赖，不是本仓库的源码。
-2. **保持壳薄。** 加依赖前先问：没有它 DSH 还能不能跑？桌面框架层的任何问题都不应该
-   波及 DSH 进程和它的 HTTP 服务——这是本项目存在的理由，展开在
-   [`docs/01-design.md`](docs/01-design.md)。
+2. **保持壳薄：只做套壳，不做多余功能。** 加依赖、加配置项、加功能前都先问同一句：
+   **没有它，DSH 还能不能跑起来？** 能，就不做。准入规则与「已裁掉的功能清单」（含
+   `dataDir`）在 [`docs/01-design.md`](docs/01-design.md) 的「功能准入」一节，**动手前先读**。
+   桌面框架层的任何问题都不应该波及 DSH 进程和它的 HTTP 服务——这是本项目存在的理由。
 3. **壳与 DSH 只通过进程间契约耦合**：stdout 就绪行 + HTTP。不要引入 JS 层耦合。
    唯一例外是代理层注入的**只读**探针（主题/侧栏几何），且注入失败必须不影响页面加载。
 4. **不要提交** `build/bin/`、`frontend/dist/`、数据目录（都已在 `.gitignore`）。
    `.workbuddy/` 是本地工作记录，保持 untracked。
 5. **改托盘 / 窗口 / 图标前先读规范**（[`docs/01-design.md`](docs/01-design.md) 的
    「UI 规范」一节），别凭感觉调数值——这些数字是量出来的，不是拍的。
+6. **改代码必须同步改文档。** `docs/` 描述的是**真实实现**，不是愿景。行为、路径、
+   配置项、默认值、启动时序、命令有任何变化，都要在**同一次工作**里改掉对应文档；
+   `AGENTS.md` 自身的「代码地图」「常用命令」同样在此列。要改哪篇见下面的
+   [文档同步映射](#文档同步映射)。
+   发现文档与实现不一致时，**以代码为准并当场修掉文档**，不要只在回复里提一句就收工。
 
 ## 常用命令
 
@@ -49,6 +55,24 @@ cd frontend && npm run build   # 只重建前端
 | `internal/update` | 查 npm registry 对比版本 |
 | `frontend/` | Vite + 原生 TS 的壳页面（iframe + 自绘窗口按钮 + 浮层）|
 | `build/` | 图标、manifest、NSIS 安装器模板（`build/bin/` 是产物目录，勿提交）|
+
+## 文档同步映射
+
+改代码前先看这张表，确认这次改动会波及哪几篇；**跨多篇就一起改**。文档里凡是写死的
+路径、默认值、目录名、命令，都要与代码逐一核对，别只改「叙述」而漏掉表格与示例片段。
+
+| 改了什么 | 同步哪些文档 |
+|---|---|
+| `internal/config`：增删配置字段、改默认值、改 `Sanitize` 规则 | [`docs/05-configuration.md`](docs/05-configuration.md)（字段表、镜像示例 JSON、易误解小节）**和** [`README.md`](README.md) 的配置表 |
+| 数据目录解析规则（`internal/dsh/paths.go` 的 `ResolveDataDir`）| [`docs/03-layout.md`](docs/03-layout.md) §2 的解析顺序 |
+| `runtime/` 下的路径常量、目录树变化 | [`docs/03-layout.md`](docs/03-layout.md) §2 的目录树 |
+| 构建产物布局、便携模式 | [`docs/03-layout.md`](docs/03-layout.md) §3、[`docs/04-build-and-run.md`](docs/04-build-and-run.md) |
+| 启动时序、就绪协议（`readyLine`）、cookie 反代、进程回收、自举流程 | [`docs/02-architecture.md`](docs/02-architecture.md) |
+| 构建/运行命令、新增排查项与坑 | [`docs/04-build-and-run.md`](docs/04-build-and-run.md) 的排查表 |
+| 依赖增删、DSH 版本跟进与更新规则、镜像 | [`docs/06-dependencies-and-versioning.md`](docs/06-dependencies-and-versioning.md) |
+| 职责边界、失败隔离、UI / 图标 / 日志规范 | [`docs/01-design.md`](docs/01-design.md) |
+| 新增或删除源文件、包职责变化 | [`docs/03-layout.md`](docs/03-layout.md) §1 **和** 本文「代码地图」 |
+| 用户可见行为的任何变化（含边界条件与失败路径）| 对应主题那篇，补上「所以然」而非只改结论 |
 
 ## 改代码时的硬约定
 
