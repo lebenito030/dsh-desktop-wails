@@ -51,10 +51,9 @@ window.addEventListener('message', (ev) => {
     if (data.type === 'dsh-desktop-theme' && (data.theme === 'dark' || data.theme === 'light')) {
         winControls.dataset.theme = data.theme;
     } else if (data.type === 'dsh-desktop-sidebar' && typeof data.width === 'number') {
-        // 拖动条起点 = 侧栏宽度 + 余量，避开折叠按钮；侧栏收起（宽度 0/未知）时
-        // 退回一个最小值，保证顶栏左侧仍有拖动区且不盖住折叠按钮。
-        const sidebar = data.width > 0 ? data.width : 0;
-        dragStrip.style.left = (sidebar + 16) + 'px';
+        // 侧栏实际渲染宽度（对齐 DSH ui-layout 常量：56 收起 / 264~420 展开）。
+        // 拖动条起点 = 侧栏宽度 + 余量，确保折叠按钮与顶栏内容可点。
+        dragStrip.style.left = (data.width + 8) + 'px';
     }
 });
 
