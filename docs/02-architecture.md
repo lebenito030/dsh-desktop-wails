@@ -115,6 +115,11 @@ dsh web: http://127.0.0.1:<port>/?token=<登录令牌>
 注入以 `dshDesktopThemeProbe` 标记去重；`Content-Length`/`Content-Encoding` 会在注入后清掉；
 **任何一步失败都直接放弃注入，不影响页面返回**。
 
+除上报外，脚本还按「侧栏右侧、贴顶通高的最外层列」做**列让位**，为 32px 拖动条腾空间：
+文档流列（中列）补 `padding-top: 32px`；绝对定位的右栏面板（`top:0` 钉在列的
+padding-box 上，祖先的 padding 推不动它）改它自己的内联 `top`（它自带 `bottom:0`，
+top 下移即整体收缩）。定位为 `fixed` 的一律不动（弹层与右栏全屏态）。
+
 ## 5. 进程树回收
 
 - 起 DSH 前创建 Job Object，设 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`，把 DSH 进程挂进去
