@@ -72,6 +72,8 @@
      └─ 成功 → 发 update:progress{done}
   4. Supervisor.Start()                重启 DSH（新端口、新 token）
   5. wireProxy 重新兑换 cookie → runtime:url → 前端 iframe 刷新到新实例
+     （代理端口跨重启不变，URL 同值；`runtime:url` 路径同值也重设 src 强制重载，
+     见 [02](02-architecture.md) 第 2 节——不重载则新前端资产不生效）
   6. 再跑一次 checkUpdate(false)
 ```
 

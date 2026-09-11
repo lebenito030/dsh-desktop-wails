@@ -64,6 +64,11 @@
 前端侧：`GetStatus()` 拉一次全量状态（处理"壳先起、页面后加载"的情况），
 其余全部靠 `EventsOn(...)` 推。
 
+**`runtime:url` 意味着「DSH（重）新就绪」**：代理监听端口跨重启不变（壳启动时
+一次性建好），重启后 URL 同值，前端在这条路径上**同值也重设 `iframe.src` 强制
+重载**——否则 iframe 停在旧实例的页面上，装插件 / 升级 DSH 后的新前端资产不
+生效。初始 `GetStatus()` 路径保持同值跳过，避免页面加载时双重导航。
+
 ## 3. 就绪协议
 
 DSH 启动后会在 stdout 打印一行就绪信息，壳按行扫描：
@@ -196,7 +201,7 @@ DSH 状态（`internal/dsh` 的 `Status`）：`stopped` / `starting` / `ready` /
 | 事件 | 载荷 | 前端行为 |
 |---|---|---|
 | `runtime:status` | `{status, detail}` | 目前只保留接线（状态点已从工具栏移除） |
-| `runtime:url` | URL 字符串 | 设置 `iframe.src`，隐藏浮层 |
+| `runtime:url` | URL 字符串 | 设置 `iframe.src`（同值也重设=强制重载，见第 2 节），隐藏浮层 |
 | `runtime:log` | 一行日志 | 浮层日志区追加（仅浮层可见时） |
 | `bootstrap:progress` | `{phase, detail, downloaded, total, indeterminate}` | 进度条 / 失败显示重试 |
 | `update:available` | `{local, latest}` | 弹更新确认窗 |
