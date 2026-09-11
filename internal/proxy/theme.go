@@ -22,9 +22,10 @@ const shellTopBarPx = 32
 //  2. 侧栏几何：侧栏宽度变化时上报，供壳动态移动顶部拖动条，
 //     避免遮挡侧栏折叠按钮。
 //
-// 同时按「侧栏右侧、贴顶通高的最外层列」给 DSH 的列补 padding-top，
-// 为顶部拖动条让位（**纯结构探测，不依赖 DSH 的类名**——发布产物走 CSS
-// Modules，类名会被 hash，匹配类名注定不可靠）。
+// 同时按「侧栏右侧、贴顶通高的最外层列」为壳的顶部拖动条让位 32px
+//（**纯结构探测，不依赖 DSH 的类名**——发布产物走 CSS Modules，类名会被
+// hash，匹配类名注定不可靠）：文档流列补 padding-top；绝对定位的右栏
+// 面板（top:0 钉在列的 padding-box 上，padding 推不动）改它自己的内联 top。
 func injectThemeProbe(body string) string {
 	script := `<script data-` + themeProbeMarker + `>
 (function(){
@@ -88,10 +89,15 @@ func injectThemeProbe(body string) string {
   }
   /* 列让位（纯结构探测，不依赖类名）：给「侧栏右侧、贴顶通高」的最外层列
      补 padding-top，为壳的顶部拖动条让位。
+     两类候选要区别对待：
+     - 文档流候选（DSH 中列）：补 padding-top；
+     - 绝对定位候选（DSH 右栏面板，position:absolute + top:0 钉在列的
+       padding-box 上）：祖先的 padding 推不动它，必须改它自己的内联 top
+       （它自带 bottom:0，top 下移即整体收缩）。
      必须幂等：React 重渲染会抹掉内联样式，观察器会在下个节拍补回来。
      只保留最外层候选（去掉互为祖先的），避免嵌套容器被叠加两次。 */
   var SHELL_TOP = ` + strconv.Itoa(shellTopBarPx) + `;
-  var padded = [];
+  var padded = [], shifted = [];
   function detectColumns(sidebarW) {
     if (!sidebarW || sidebarW <= 0) return;
     var all = document.querySelectorAll("body *");
@@ -101,25 +107,47 @@ func injectThemeProbe(body string) string {
       var r = el.getBoundingClientRect();
       if (r.width < 60 || r.width >= window.innerWidth - 40) continue;
       if (r.left < sidebarW - 1) continue;
-      /* 起点允许到让位区底部：已补过 padding 的列（top=32）要继续命中，
+      /* 起点允许到让位区底部：已让位的候选（top=32）要继续命中，
          否则 React 一重渲染就会失去让位。 */
       if (r.top > SHELL_TOP) continue;
       /* 接近通高即可：右侧栏底部可能有内边距/状态区，够不到窗口最底沿。 */
       if (r.bottom < window.innerHeight - 60) continue;
-      /* 只排除 fixed（弹层）；absolute 的侧栏面板是合法布局。 */
-      if (getComputedStyle(el).position === "fixed") continue;
+      var pos = getComputedStyle(el).position;
+      /* fixed 是弹层（含右栏的全屏态），一律不动。 */
+      if (pos === "fixed") continue;
+      /* absolute 只认贴着右缘的：右栏面板 right:0 钉在窗口右缘；
+         窗口中部的浮动面板不是列，不能动。用 clientWidth 而非
+         innerWidth：后者含页面滚动条宽度，会把贴右缘的面板误判掉。 */
+      if (pos === "absolute" && r.right < document.documentElement.clientWidth - 1) continue;
       cands.push(el);
     }
     var tops = [];
     for (var j = 0; j < cands.length; j++) {
+      var posJ = getComputedStyle(cands[j]).position;
       var outermost = true;
       for (var k = 0; k < cands.length; k++) {
-        if (k !== j && cands[k].contains(cands[j])) { outermost = false; break; }
+        if (k === j || !cands[k].contains(cands[j])) continue;
+        if (posJ !== "absolute") { outermost = false; break; }
+        /* j 是 absolute：文档流祖先的 padding 推不动它，不能因此剥离；
+           但 absolute 祖先靠自己的 top 让位，会把它一起带走，仍要剥离。 */
+        if (getComputedStyle(cands[k]).position === "absolute") { outermost = false; break; }
       }
       if (outermost) tops.push(cands[j]);
     }
     for (var a = 0; a < tops.length; a++) {
-      if (tops[a].style.paddingTop !== SHELL_TOP + "px") tops[a].style.paddingTop = SHELL_TOP + "px";
+      var el = tops[a];
+      if (getComputedStyle(el).position === "absolute") {
+        /* 右栏面板：改自己的 top（自带 bottom:0，改 top 即收缩）。
+           只在它还顶着让位带上沿时移动，避免把已经移过的又推一遍。 */
+        if (el.style.top !== SHELL_TOP + "px") {
+          var cur = parseFloat(el.style.top);
+          if (isNaN(cur) || cur <= SHELL_TOP) el.style.top = SHELL_TOP + "px";
+        }
+        if (shifted.indexOf(el) === -1) shifted.push(el);
+      } else {
+        if (el.style.paddingTop !== SHELL_TOP + "px") el.style.paddingTop = SHELL_TOP + "px";
+        if (padded.indexOf(el) === -1) padded.push(el);
+      }
     }
     for (var b = padded.length - 1; b >= 0; b--) {
       if (tops.indexOf(padded[b]) === -1) {
@@ -127,8 +155,11 @@ func injectThemeProbe(body string) string {
         padded.splice(b, 1);
       }
     }
-    for (var c = 0; c < tops.length; c++) {
-      if (padded.indexOf(tops[c]) === -1) padded.push(tops[c]);
+    for (var c = shifted.length - 1; c >= 0; c--) {
+      if (tops.indexOf(shifted[c]) === -1) {
+        shifted[c].style.top = "";
+        shifted.splice(c, 1);
+      }
     }
   }
   function start() {
