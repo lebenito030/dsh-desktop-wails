@@ -1,5 +1,7 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+:root { --titlebar-h: 32px; } /* 壳标题栏高度：DSH 内容从其下开始 */
+
 html, body { height: 100%; }
 
 body {
@@ -13,30 +15,49 @@ body {
 
 .hidden { display: none !important; }
 
-/* ---- DSH iframe 铺满整个窗口 ---- */
+/* ---- DSH iframe：顶部让出标题栏高度，自己的顶栏不再被壳的拖动条遮住 ---- */
 #dsh-frame {
     position: absolute;
-    inset: 0;
+    top: var(--titlebar-h);
+    left: 0;
     width: 100%;
-    height: 100%;
+    height: calc(100% - var(--titlebar-h));
     border: none;
     display: block;
     background: #fff;
     --wails-draggable: no-drag;
 }
 
-/* ---- 顶部细拖动条：贯通窗口、不遮挡页面交互 ---- */
-/* 仅 6px 高，落在 DSH 顶栏上缘；拖动主要靠它，按钮独立在外 */
+/* ---- 顶部标题栏：壳独占、贯通全宽 ---- */
+/* 以前是浮在 DSH 顶栏上的隐形条（靠上报侧栏宽度让位），两边互相遮挡；
+   现在壳拥有整行，DSH 内容整体下移，谁也不挡谁。配色跟随 DSH 主题。 */
 #drag-strip {
     position: absolute;
     top: 0;
-    left: 300px; /* 初始值；注入脚本上报侧栏宽度后由 main.ts 动态覆盖 */
-    right: 135px; /* 让出右上角按钮区域 */
-    height: 32px;
+    left: 0;
+    right: 0;
+    height: var(--titlebar-h);
     --wails-draggable: drag;
     z-index: 5;
     cursor: default;
+    user-select: none;
+    background: #fff;
 }
+body[data-theme="dark"] #drag-strip { background: #1e222d; }
+
+/* ---- 窗口边缘缩放把手 ---- */
+/* Wails 的边缘缩放靠父文档 mousemove 做边缘检测（borderThickness 固定 6px）；
+   把手必须正好是最外侧 6px 才能命中。z-index 高于标题栏：最外侧 6px 用于
+   缩放，其下才是拖动——与原生标题栏的行为一致。 */
+.edge {
+    position: absolute;
+    z-index: 6;
+    --wails-draggable: no-drag;
+}
+#edge-top    { top: 0; left: 0; right: 0; height: 6px; }
+#edge-bottom { bottom: 0; left: 0; right: 0; height: 6px; }
+#edge-left   { top: 0; bottom: 0; left: 0; width: 6px; }
+#edge-right  { top: 0; bottom: 0; right: 0; width: 6px; }
 
 /* ---- 右上角浮动窗口控制按钮 ---- */
 #win-controls {

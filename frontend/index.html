@@ -7,8 +7,16 @@
 </head>
 <body>
 <div id="app">
-    <!-- DSH Web UI 铺满整个窗口；src 由 Go 侧就绪 URL 事件驱动设置 -->
+    <!-- DSH Web UI：顶部让出标题栏高度；src 由 Go 侧就绪 URL 事件驱动设置 -->
     <iframe id="dsh-frame" title="DSH"></iframe>
+
+    <!-- 窗口边缘缩放把手：Wails 的边缘缩放依赖「父文档的 mousemove」做边缘检测，
+         而 iframe 铺满时鼠标事件进不了父文档。这四条 6px 把手（与 Wails 的
+         borderThickness 同宽）把窗口边缘的鼠标事件还给父文档。 -->
+    <div id="edge-top" class="edge"></div>
+    <div id="edge-bottom" class="edge"></div>
+    <div id="edge-left" class="edge"></div>
+    <div id="edge-right" class="edge"></div>
 
     <!-- 右上角浮动窗口控制按钮（配色跟随 DSH 主题） -->
     <div id="win-controls" data-theme="light">
@@ -27,7 +35,7 @@
         </button>
     </div>
 
-    <!-- 顶部细拖动条：贯通窗口顶部（不遮挡交互，仅边框高度） -->
+    <!-- 顶部标题栏：壳独占、贯通全宽、可拖动；DSH 内容从其下开始 -->
     <div id="drag-strip" title=""></div>
 
     <!-- 首次安装 / 更新进度浮层 -->
