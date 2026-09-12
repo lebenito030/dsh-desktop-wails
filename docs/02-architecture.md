@@ -205,8 +205,9 @@ DSH 状态（`internal/dsh` 的 `Status`）：`stopped` / `starting` / `ready` /
 | `runtime:log` | 一行日志 | 追加进 400 行环形缓冲；浮层可见时同时追加到日志区（浮层未开时只缓冲，弹开时整体回放） |
 | `bootstrap:progress` | `{phase, detail, downloaded, total, indeterminate}` | 进度条 / 失败显示重试 |
 | `update:available` | `{local, latest}` | 弹更新确认窗 |
-| `update:progress` | 同上 | 更新进度；失败提示"已回退旧版本" |
-| `update:none` | 文案 | 目前前端未接线（托盘手动检查时由托盘侧兜底） |
+| `update:progress` | 同上 | 更新进度（浮层 + toast）；失败提示"已回退旧版本" |
+| `update:none` | 文案 | 左下角轻提示条（toast）显示 3 秒：「已是最新版本 x」或「检查更新失败: …」 |
+| `update:progress`（下载中） | 同上 | 除浮层外，左下角 toast 同步显示下载进度（百分比 + MB，sticky 常驻直到 done/failed） |
 | `window:maximised` | bool | 切换最大化/还原图标 |
 
 前端可调用的绑定方法：`GetStatus` / `RetryBootstrap` / `ApplyUpdate` / `WindowMin` /

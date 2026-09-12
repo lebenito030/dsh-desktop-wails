@@ -39,7 +39,7 @@
 |---|---|---|---|
 | 1 | 首次安装 | 自举 `EnsureRuntime` 装 `dshVersion`（默认 `latest`） | 直接就是最新版 |
 | 2 | **每次启动** | 启动完成后异步 `checkUpdate(false)`（不阻塞界面） | 有新版本弹确认窗：`当前版本 x.y.z，最新版本 a.b.c`，可「立即更新」或「稍后」 |
-| 3 | 随时手动 | 托盘菜单「检查更新」→ `CheckUpdate()` | 有新版弹同一个窗；已是最新则走 `update:none` 事件 |
+| 3 | 随时手动 | 托盘菜单「检查更新」→ `CheckUpdate()` | 有新版弹同一个窗；已是最新（或检查失败）由左下角轻提示条显示 3 秒（`update:none`） |
 
 检查逻辑（`internal/update/check.go`）：
 
