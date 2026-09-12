@@ -28,6 +28,9 @@ type App struct {
 	prx      *proxy.Proxy
 	updating bool
 	quitting bool
+	// runtimeVersions 是托盘 tooltip 第二行的版本串（"DSH x · Node y"），
+	// 惰性填充：首次需要时读取，安装/更新 DSH 后由 ApplyUpdate 失效。
+	runtimeVersions string
 }
 
 func NewApp() *App {
@@ -135,7 +138,26 @@ func (a *App) OnStatus(s dsh.Status, detail string) {
 	if a.ctx != nil {
 		wruntime.EventsEmit(a.ctx, "runtime:status", map[string]any{"status": string(s), "detail": detail})
 	}
-	traySetStatus(s, detail)
+	traySetStatus(s, detail, a.runtimeVersionLine())
+}
+
+// runtimeVersionLine 组装托盘 tooltip 第二行："DSH 0.1.5 · Node 22.20.0"。
+// dsh 版本读本地 package.json，node 版本取配置值（即实际安装的版本）；
+// dsh 未安装时返回空串（tooltip 不显示版本行）。结果缓存，安装/更新后失效。
+func (a *App) runtimeVersionLine() string {
+	if a.runtimeVersions != "" {
+		return a.runtimeVersions
+	}
+	dshVer := a.paths.LocalVersion()
+	if dshVer == "" {
+		return ""
+	}
+	line := "DSH " + dshVer
+	if a.cfg.NodeVersion != "" {
+		line += " · Node " + a.cfg.NodeVersion
+	}
+	a.runtimeVersions = line
+	return line
 }
 
 // OnURL 由 supervisor 在就绪时调用（readyURL 含 token）。这里完成
@@ -309,6 +331,7 @@ func (a *App) ApplyUpdate() {
 	wruntime.EventsEmit(ctx, "update:progress", map[string]any{
 		"phase": string(bootstrap.PhaseDone),
 	})
+	a.runtimeVersions = "" // dsh 版本已变，托盘 tooltip 的版本行下次重新读取
 	if _, err := a.sup.Start(ctx); err != nil {
 		return
 	}

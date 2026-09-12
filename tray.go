@@ -52,7 +52,9 @@ func setTrayIconAlive(v bool) {
 }
 
 // trayStatusTip 把 DSH 状态翻成托盘 tooltip 文案（Windows 的 szTip / Unix 的图标提示）。
-func trayStatusTip(s dsh.Status, detail string) string {
+// versions 非空时追加在第二行（Windows tooltip 支持多行），hover 即见当前
+// runtime 版本；空串时只显示状态行。
+func trayStatusTip(s dsh.Status, detail string, versions string) string {
 	tip := "DSH Desktop — "
 	switch s {
 	case dsh.StatusReady:
@@ -70,6 +72,9 @@ func trayStatusTip(s dsh.Status, detail string) string {
 		}
 	default:
 		tip += "已停止"
+	}
+	if versions != "" {
+		tip += "\n" + versions
 	}
 	return tip
 }

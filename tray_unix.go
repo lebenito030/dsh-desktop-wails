@@ -100,8 +100,8 @@ func trayOnReady(lg *log.Logger) {
 }
 
 // traySetStatus 让托盘提示跟随 DSH 状态（由 app 的 OnStatus 调用）。
-func traySetStatus(s dsh.Status, detail string) {
-	tip := trayStatusTip(s, detail)
+func traySetStatus(s dsh.Status, detail string, versions string) {
+	tip := trayStatusTip(s, detail, versions)
 
 	trayMu.Lock()
 	trayTip = tip

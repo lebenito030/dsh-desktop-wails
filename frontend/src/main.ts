@@ -36,6 +36,8 @@ const updateDesc = document.getElementById('update-desc')!;
 const btnUpdateNow = document.getElementById('btn-update-now') as HTMLButtonElement;
 const btnUpdateLater = document.getElementById('btn-update-later') as HTMLButtonElement;
 
+const toast = document.getElementById('toast')!;
+
 // ---- 就绪 URL：iframe 加载（含登录 token 的地址经 Go 侧代理处理） ----
 // reload: 重启就绪路径必须传 true——代理端口跨重启不变，URL 同值，靠
 // 重设 src 强制 iframe 重载，装插件/升级后的新前端资产才能生效。
@@ -53,6 +55,7 @@ window.addEventListener('message', (ev) => {
     if (!data) return;
     if (data.type === 'dsh-desktop-theme' && (data.theme === 'dark' || data.theme === 'light')) {
         winControls.dataset.theme = data.theme;
+        toast.dataset.theme = data.theme;
     } else if (data.type === 'dsh-desktop-sidebar' && typeof data.width === 'number') {
         // 侧栏实际渲染宽度（对齐 DSH ui-layout 常量：56 收起 / 264~420 展开）。
         // 拖动条起点 = 侧栏宽度 + 余量，确保折叠按钮与顶栏内容可点。
@@ -161,6 +164,38 @@ EventsOn('update:available', (u: { local: string; latest: string }) => {
     updateModal.classList.remove('hidden');
 });
 
+// ---- 轻提示条（toast）：非模态的更新检查结果 / 更新下载进度 ----
+let toastTimer: ReturnType<typeof setTimeout> | null = null;
+function hideToast(): void {
+    if (toastTimer) { clearTimeout(toastTimer); toastTimer = null; }
+    toast.classList.add('fading');
+    setTimeout(() => {
+        toast.classList.add('hidden');
+        toast.classList.remove('fading');
+        toast.textContent = '';
+    }, 260);
+}
+// sticky=true 用于下载进度：持续存在、每次刷新内容重置计时；false 为纯提示，3 秒消失
+function showToast(text: string, sticky = false): void {
+    if (toastTimer) { clearTimeout(toastTimer); toastTimer = null; }
+    toast.classList.remove('hidden', 'fading');
+    toast.textContent = text;
+    if (!sticky) {
+        toastTimer = setTimeout(hideToast, 3000);
+    }
+}
+
+EventsOn('update:none', (msg: string) => {
+    showToast(msg);
+});
+
+function formatProgress(got: number, total: number, indeterminate: boolean): string {
+    if (indeterminate || total <= 0) return '下载中…';
+    const pct = Math.min(100, Math.round((got / total) * 100));
+    const mb = (n: number) => (n / 1024 / 1024).toFixed(1);
+    return `下载中 ${pct}%（${mb(got)}/${mb(total)} MB）`;
+}
+
 EventsOn('update:progress', (p: {
     phase: string; detail: string;
     downloaded: number; total: number; indeterminate: boolean;
@@ -169,15 +204,19 @@ EventsOn('update:progress', (p: {
         case 'dsh':
             showOverlayIfHidden('正在更新 DSH');
             setProgress(p.downloaded, p.total, p.indeterminate);
+            // 提示条同步显示下载进度（浮层可能被用户关掉，toast 兜底可见）
+            showToast(formatProgress(p.downloaded, p.total, p.indeterminate), true);
             if (p.detail) appendLog(p.detail);
             break;
         case 'done':
             overlay.classList.add('hidden');
+            showToast('更新完成，DSH 已重启');
             break;
         case 'failed':
             overlayTitle.textContent = '更新失败（已回退旧版本）';
             appendLog(p.detail);
             btnOverlayClose.classList.remove('hidden');
+            hideToast();
             break;
     }
 });

@@ -96,6 +96,49 @@ body {
 #win-controls[data-theme="dark"] .win-btn:hover { background: rgba(255,255,255,0.08); color: #fff; }
 #win-controls[data-theme="dark"] .win-btn.win-close:hover { background: #e81123; color: #fff; }
 
+/* ---- 轻提示条（toast） ---- */
+/* 非模态的检查更新结果与更新下载进度。左下角：右上角是窗口按钮区，
+   顶部有拖动条，底部中间容易被 DSH 输入框抢视觉焦点。深浅两套配色
+   跟随窗口按钮的主题标记（同一个 data-theme，由探针上报驱动）。 */
+#toast {
+    position: absolute;
+    left: 16px;
+    bottom: 16px;
+    max-width: 70vw;
+    z-index: 15;
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 12.5px;
+    line-height: 1.5;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+    background: rgba(28, 34, 50, 0.92);
+    color: #e8ecf5;
+    --wails-draggable: no-drag;
+    opacity: 1;
+    transition: opacity 0.25s ease;
+}
+#toast.fading { opacity: 0; }
+#toast[data-theme="dark"] {
+    background: rgba(233, 237, 245, 0.95);
+    color: #1c2232;
+}
+#toast .bar {
+    display: block;
+    height: 4px;
+    margin-top: 6px;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.18);
+    overflow: hidden;
+}
+#toast[data-theme="dark"] .bar { background: rgba(0, 0, 0, 0.12); }
+#toast .bar > i {
+    display: block;
+    height: 100%;
+    background: #38bdf8;
+    border-radius: 2px;
+    transition: width 0.2s ease;
+}
+
 /* ---- 浮层与弹层 ---- */
 #overlay, #update-modal {
     position: absolute;
