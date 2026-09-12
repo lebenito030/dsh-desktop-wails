@@ -91,9 +91,29 @@ function showOverlayIfHidden(title: string): void {
     }
 }
 
+// ---- 日志缓冲：浮层未打开时也保留最近 400 行 ----
+// DSH 崩溃的现场在 stdout 里；若只在浮层可见时追加，启动失败的日志
+// 恰好会被丢掉（浮层那时是关着的）。缓冲在弹开时整体回放。
+const logBuffer: string[] = [];
+function bufferLog(line: string): void {
+    logBuffer.push(line);
+    if (logBuffer.length > 400) logBuffer.splice(0, logBuffer.length - 400);
+}
+
 // ---- 事件接线 ----
-EventsOn('runtime:status', (_payload: { status: string; detail: string }) => {
-    // 状态点已随工具栏移除；保留事件以备恢复。 iframe URL 由 runtime:url 驱动。
+EventsOn('runtime:status', (payload: { status: string; detail: string }) => {
+    // 状态点已随工具栏移除。DSH 启动/运行失败时自动弹出浮层展示日志：
+    // DSH 会把精确诊断打进 stdout（如配置文件解析错误的文件+行号），
+    // 壳的职责是把现场如实呈现，不能让用户面对一个无声的白屏。
+    if (payload.status === 'error') {
+        showOverlayIfHidden('DSH 运行出错');
+        setProgress(0, 0, true);
+        // 回放缓冲：崩溃现场在 detail 之前的日志行里（DSH 的 stdout 诊断）。
+        overlayLog.textContent = logBuffer.join('\n') + '\n';
+        overlayLog.scrollTop = overlayLog.scrollHeight;
+        if (payload.detail) appendLog(payload.detail);
+        btnRetry.classList.remove('hidden');
+    }
 });
 
 EventsOn('runtime:url', (url: string) => {
@@ -101,9 +121,11 @@ EventsOn('runtime:url', (url: string) => {
     // 否则 iframe 停在旧实例的页面上，插件/升级的新前端不生效。
     setIframeUrl(url, true);
     overlay.classList.add('hidden');
+    logBuffer.length = 0;
 });
 
 EventsOn('runtime:log', (line: string) => {
+    bufferLog(line);
     if (!overlay.classList.contains('hidden')) {
         appendLog(line);
     }

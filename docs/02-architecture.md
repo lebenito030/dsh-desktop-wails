@@ -200,9 +200,9 @@ DSH 状态（`internal/dsh` 的 `Status`）：`stopped` / `starting` / `ready` /
 
 | 事件 | 载荷 | 前端行为 |
 |---|---|---|
-| `runtime:status` | `{status, detail}` | 目前只保留接线（状态点已从工具栏移除） |
-| `runtime:url` | URL 字符串 | 设置 `iframe.src`（同值也重设=强制重载，见第 2 节），隐藏浮层 |
-| `runtime:log` | 一行日志 | 浮层日志区追加（仅浮层可见时） |
+| `runtime:status` | `{status, detail}` | `status=error` 时自动弹出浮层、回放日志缓冲并显示重试按钮（DSH 的失败诊断在 stdout 里，壳必须把现场呈现出来，不能让用户面对无声的白屏） |
+| `runtime:url` | URL 字符串 | 设置 `iframe.src`（同值也重设=强制重载，见第 2 节），隐藏浮层并清空日志缓冲 |
+| `runtime:log` | 一行日志 | 追加进 400 行环形缓冲；浮层可见时同时追加到日志区（浮层未开时只缓冲，弹开时整体回放） |
 | `bootstrap:progress` | `{phase, detail, downloaded, total, indeterminate}` | 进度条 / 失败显示重试 |
 | `update:available` | `{local, latest}` | 弹更新确认窗 |
 | `update:progress` | 同上 | 更新进度；失败提示"已回退旧版本" |
