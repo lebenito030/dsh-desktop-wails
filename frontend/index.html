@@ -8,8 +8,12 @@
 <body>
 <div id="app">
     <!-- DSH Web UI 铺满整个窗口；其列由壳注入的 CSS 让出顶部高度。
-         src 由 Go 侧就绪 URL 事件驱动设置 -->
-    <iframe id="dsh-frame" title="DSH"></iframe>
+         src 由 Go 侧就绪 URL 事件驱动设置。
+         allow="clipboard-write"：浏览器的 Permissions Policy 规定 iframe 写剪贴板
+         须由顶层文档授权，默认 allow list 是 self；缺了这一条，DSH 页面里所有
+         复制按钮（消息/代码块/终端输出…）的 navigator.clipboard.writeText 会被
+         静默拒绝，表现为「点了没反应」。 -->
+    <iframe id="dsh-frame" title="DSH" allow="clipboard-write"></iframe>
 
     <!-- 窗口边缘缩放把手：Wails 的边缘缩放依赖「父文档的 mousemove」做边缘检测，
          而 iframe 铺满时鼠标事件进不了父文档。这四条 6px 把手（与 Wails 的
