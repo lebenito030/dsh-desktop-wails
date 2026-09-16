@@ -109,6 +109,14 @@ dsh web: http://127.0.0.1:<port>/?token=<登录令牌>
 
 兑换失败时**降级为直连**（`a.OnURL(readyURL)`），至少浏览器场景可用，而不是白屏。
 
+**iframe 的 `allow="clipboard-write"`**：跨站之外，浏览器对 iframe 还有一道
+Permissions Policy 闸门——`clipboard-write` 的默认 allow list 是 `self`（顶层
+文档），iframe 自身的 secure context 不足以放行。壳页面的 iframe 若不带
+`allow="clipboard-write"`，DSH 里所有复制按钮的 `navigator.clipboard.writeText`
+会被浏览器**静默拒绝**（API 存在、无报错），表现为「点了复制没反应」。2026-09
+实测：同拓扑下缺属性复制必失败、加属性即恢复，故 `frontend/index.html` 的
+`<iframe id="dsh-frame">` 固定携带该属性。
+
 **探针注入**：`ModifyResponse` 对 `text/html` 响应注入一段**只读**脚本（插在 `</head>` 前），
 它做两件事并通过 `postMessage` 上报给壳：
 
