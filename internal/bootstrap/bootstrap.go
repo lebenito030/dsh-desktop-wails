@@ -3,11 +3,13 @@
 package bootstrap
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"dsh-desktop-wails/internal/config"
@@ -100,6 +102,7 @@ func (in *Installer) EnsureRuntime(ctx context.Context, progress Progress) error
 }
 
 // UpdateDsh 只重装 dsh 包（Node 不动）：Stop DSH 后调用，装完再 Start。
+// 终态（done/failed）不由这里上报——「完成」要看重启是否成功，由调用方定。
 func (in *Installer) UpdateDsh(ctx context.Context, progress Progress) error {
 	in.logf("更新 %s@latest ...", in.Cfg.DshPackage)
 	if err := in.npmInstall(ctx, in.Cfg.DshPackage+"@latest", func(line string) {
@@ -107,8 +110,61 @@ func (in *Installer) UpdateDsh(ctx context.Context, progress Progress) error {
 	}); err != nil {
 		return in.fail(progress, fmt.Errorf("更新 DSH 失败: %w", err))
 	}
-	progress(PhaseDone, "", 0, 0, false)
+	// 装完即校验运行时就位：上游若改了 bin 路径，这里给明确报错，
+	// 而不是等 Start 后 45s 就绪超时。
+	if !in.RuntimeReady() {
+		return in.fail(progress, fmt.Errorf("更新完成但 %s 不存在", in.Paths.DshBin))
+	}
 	return nil
+}
+
+// prependPath 把 dir 前置到环境变量 PATH 的值里（不改变其余部分）。
+// npm install 的依赖可能带 install 脚本（如 koffi 的 `node ./cnoke.cjs`），
+// 这些脚本经 cmd 起子进程后按 PATH 解析 `node`；捆绑 node 不前置进去，
+// 在没有全局 node 的机器上（本项目目标用户的标准处境）install 必失败。
+func prependPath(env []string, dir string) []string {
+	sep := ";"
+	if runtime.GOOS != "windows" {
+		sep = ":"
+	}
+	out := make([]string, 0, len(env)+1)
+	replaced := false
+	for _, kv := range env {
+		if len(kv) >= 5 && strings.EqualFold(kv[:5], "PATH=") {
+			out = append(out, "PATH="+dir+sep+kv[5:])
+			replaced = true
+			continue
+		}
+		out = append(out, kv)
+	}
+	if !replaced {
+		out = append(out, "PATH="+dir)
+	}
+	return out
+}
+
+// lineWriter 按 Write 到达顺序拆行并回调 onLine，流式透传子进程输出。
+// 之前用 CombinedOutput 攒到进程退出才统一回调，npm 安装的一两分钟里
+// 前端收不到任何进度事件，用户看到的就是「点了更新没反应」。
+type lineWriter struct {
+	onLine func(string)
+	buf    []byte
+}
+
+func (w *lineWriter) Write(p []byte) (int, error) {
+	w.buf = append(w.buf, p...)
+	for {
+		i := bytes.IndexAny(w.buf, "\r\n")
+		if i < 0 {
+			break
+		}
+		line := string(w.buf[:i])
+		w.buf = w.buf[i+1:]
+		if line != "" {
+			w.onLine(line)
+		}
+	}
+	return len(p), nil
 }
 
 // npmInstall 用捆绑的 node 运行 npm-cli.js，以 --prefix 方式安装一个包说明符。
@@ -124,15 +180,18 @@ func (in *Installer) npmInstall(ctx context.Context, spec string, onLine func(st
 	}
 	cmd := exec.CommandContext(ctx, in.Paths.NodeExe, npmCli, "install", spec, "--prefix", in.Paths.DshDir, "--registry", in.Cfg.NpmRegistry, "--no-audit", "--no-fund", "--loglevel=info")
 	cmd.Dir = in.Paths.DshDir
+	// npm 的依赖安装脚本可能再调 node / npm（koffi 的 install 脚本就调 node），
+	// 它们按 PATH 找可执行文件；捆绑 node 必须进子进程 PATH。
+	cmd.Env = prependPath(os.Environ(), filepath.Dir(in.Paths.NodeExe))
 	hideChildWindow(cmd)
-	out, err := cmd.CombinedOutput()
-	for _, line := range strings.Split(strings.TrimRight(string(out), "\r\n"), "\n") {
-		if line != "" {
-			onLine(line)
-		}
+	lw := &lineWriter{onLine: onLine}
+	cmd.Stdout = lw
+	cmd.Stderr = lw
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("npm install %s: %w", spec, err)
 	}
-	if err != nil {
-		return fmt.Errorf("npm install %s: %w\n%s", spec, err, string(out))
+	if err := cmd.Wait(); err != nil {
+		return fmt.Errorf("npm install %s: %w", spec, err)
 	}
 	return nil
 }
