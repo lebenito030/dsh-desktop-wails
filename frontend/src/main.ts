@@ -2,6 +2,7 @@ import './style.css';
 
 import {
     EventsOn,
+    WindowIsMaximised,
 } from '../wailsjs/runtime/runtime';
 import {
     GetStatus,
@@ -210,10 +211,10 @@ EventsOn('update:progress', (p: {
             break;
         case 'done':
             overlay.classList.add('hidden');
-            showToast('更新完成，DSH 已重启');
+            showToast(p.detail || '更新完成，DSH 已重启');
             break;
         case 'failed':
-            overlayTitle.textContent = '更新失败（已回退旧版本）';
+            overlayTitle.textContent = '更新失败';
             appendLog(p.detail);
             btnOverlayClose.classList.remove('hidden');
             hideToast();
@@ -239,10 +240,22 @@ btnClose.addEventListener('click', () => WindowHideToTray());
 // 标题栏双击 = 最大化 / 还原，与原生标题栏行为一致
 dragStrip.addEventListener('dblclick', () => WindowToggleMax());
 
-EventsOn('window:maximised', (maximised: boolean) => {
+// 最大化状态：切图标 + 压制边缘缩放光标。
+// Wails 的边缘检测是无状态的纯位置判断（borderThickness 固定 6px），
+// 最大化后屏幕最外 6px 仍在命中区，边缘会冒出缩放光标；原生 Windows
+// 对最大化窗口的边缘不显示缩放光标。这里给 documentElement 挂 class，
+// style.css 的 !important 作者样式压住运行时写的行内光标。
+// 「拖边缘还原窗口」行为保留（Go 侧照常发 WM_NCLBUTTONDOWN，由 OS 还原）。
+function applyMaximised(maximised: boolean): void {
     icoMax.classList.toggle('hidden', maximised);
     icoRestore.classList.toggle('hidden', !maximised);
-});
+    document.documentElement.classList.toggle('maximised', maximised);
+}
+
+EventsOn('window:maximised', applyMaximised);
+
+// 启动时同步一次初始状态（窗口启动即最大化时不靠事件也能压住光标）
+WindowIsMaximised().then(applyMaximised).catch(console.error);
 
 // ---- 浮层按钮 ----
 btnRetry.addEventListener('click', () => {

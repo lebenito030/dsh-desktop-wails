@@ -59,6 +59,13 @@ body {
 #edge-left   { top: 0; bottom: 0; left: 0; width: 6px; }
 #edge-right  { top: 0; bottom: 0; right: 0; width: 6px; }
 
+/* ---- 最大化时压制边缘缩放光标 ----
+   Wails 的边缘检测（borderThickness 6px）是无状态的纯位置判断：最大化后
+   屏幕最外 6px 仍在命中区，鼠标进去会被运行时写成行内缩放光标。原生
+   Windows 对最大化窗口的边缘不显示缩放光标（拖它才会还原）。作者层
+   !important 样式优先于行内样式，故在此压住；「拖边缘还原」行为不受影响。 */
+html.maximised { cursor: default !important; }
+
 /* ---- 右上角浮动窗口控制按钮 ---- */
 #win-controls {
     position: absolute;
