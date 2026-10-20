@@ -63,7 +63,7 @@ DSH 的运行时不在 exe 里，首次启动要装到数据目录：
 | `check` | 检查 `node.exe` 与 `dsh/lib/bin.js` 是否都在 | 无感 |
 | `skipped` | 都在，跳过安装 | 无感 |
 | `node` | 按 `nodeDownloadUrl` 下载 Node zip（带进度）→ 解压并剥掉顶层目录到 `runtime/node` | 进度条 + 「下载/解压 Node」 |
-| `dsh` | `node <npm-cli.js> install @deepseek-ai/dsh@<版本> --prefix runtime/dsh --registry <镜像>` | 不确定态进度条 + npm 日志滚动 |
+| `dsh` | `node <npm-cli.js> install @deepseek-ai/dsh@<版本> --prefix runtime/dsh --registry <镜像>` | 不确定态进度条 + npm 日志**实时**逐行滚动（行拆分 writer 直通 `update:progress` / `bootstrap:progress`） |
 | `done` | 装完，开始启动 DSH | 浮层消失 |
 | `failed` | 任一步失败（detail 为原因） | 浮层显示原因 + 重试按钮 |
 
@@ -81,8 +81,10 @@ config.Load → RuntimeReady()==true → Supervisor.Start() → 就绪 → 接�
 
 ### 4.3 环境变量
 
-壳只额外设置一个环境变量：`DSH_HOME`（当 `config.json` 的 `dshHome` 非空时）。
-其余继承壳进程的环境。子进程以 `CREATE_NO_WINDOW` 启动，不会闪黑窗。
+壳只额外设置一个环境变量：`DSH_HOME`（当 `config.json` 的 `dshHome` 非空时）；
+另外给 npm install 子进程的 `PATH` **前置**捆绑 node 目录——依赖的 install 脚本
+（如 koffi）会再调 `node`，没有全局 node 的机器全靠这一条。其余继承壳进程的环境。
+子进程以 `CREATE_NO_WINDOW` 启动，不会闪黑窗。
 
 ## 5. 发布
 
@@ -103,6 +105,7 @@ config.Load → RuntimeReady()==true → Supervisor.Start() → 就绪 → 接�
 | 界面白屏 / `authentication required` | 反代没接上。查 `tray.log` 之外的启动日志：`ExchangeToken` 是否拿到 cookie（兑换失败会降级直连，此时 iframe 可能报鉴权失败） |
 | 一启动就闪退、无任何日志 | 多半是 pre-`OnStartup` 失败（WebView2 / 窗口创建）。**注意：在沙箱或非交互桌面里启动 Wails GUI 应用会让 WebView2 报 `0x8000FFFF Catastrophic failure`**，这不是代码问题，换真实桌面环境再试 |
 | 一直卡在「正在准备 DSH 运行时」 | 网络/镜像。看浮层里 npm 的输出；确认 `npmRegistry` 可达、`nodeDownloadUrl` 模板两处 `%s` 都在 |
+| 更新失败，npm 报 `'node' 不是内部或外部命令` | 2026-09-25 之前的旧版壳的已知问题：npm 子进程 PATH 没带捆绑 node，koffi 等带 install 脚本的依赖必失败。换新版壳更新即可；数据目录如被旧壳打坏（`@deepseek-ai/dsh` 目录消失），新版壳更新时会自动重装修复 |
 | 装到一半失败，反复失败 | 直接删掉 `<数据目录>/runtime/` 再重启，会完整重装（config.json 不动） |
 | DSH 起不来（就绪超时 45s） | 用系统 Node 手动跑一次复现：`node <数据目录>/runtime/dsh/node_modules/@deepseek-ai/dsh/lib/bin.js web --no-open --port 0`，看它输出什么 |
 | 更新后想回退 | 改 `config.json` 的 `dshVersion` 为指定版本号（如 `0.3.1`），删掉 `runtime/dsh/` 重启即可定向安装 |

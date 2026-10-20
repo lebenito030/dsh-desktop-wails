@@ -32,7 +32,9 @@ dsh-desktop-wails/
 │   │   ├── proxy.go          持有会话 cookie 的反代 + Director/ModifyResponse
 │   │   ├── theme.go          注入只读探针（主题 + 侧栏几何上报）
 │   │   └── listen.go         127.0.0.1 随机端口监听
-│   └── update/check.go       查 npm registry dist-tag latest 并对比本地版本
+│   └── update/
+│       ├── check.go          查 npm registry dist-tag latest 并对比本地版本（直连→系统代理→重试）
+│       └── proxy_*.go        第二跳的代理来源（windows 读 WinINET 注册表 / 其它平台无）
 │
 ├── .github/workflows/        CI：test（三平台跑测试）/ release（tag 触发三平台打包）
 ├── frontend/                 壳页面（Vite + 原生 TypeScript）

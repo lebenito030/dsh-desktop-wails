@@ -49,7 +49,12 @@
 是否有更新 = 本地非空 && newer(上游, 本地)
 ```
 
-- 单次查询超时 15s，失败**静默**（只在手动检查时提示「检查更新失败」）；
+- 网络路径按 **直连 → Windows 系统代理 → 直连重试** 依次尝试，每跳独立超时 8s、
+  间隔 1s，全挂才报失败（取最后一跳的原因）；registry 已应答（如 404）就不换路，
+  直接上报。第二跳的存在理由：Go 的 `net/http` 只认 `HTTPS_PROXY` 环境变量，
+  不读 WinINET 系统代理——Clash/V2Ray 用户的代理对壳不可见，而国内直连
+  registry 间歇被重置是实测常态（2026-10 实测：直连失败的同时系统代理可达）；
+- 失败仍**静默**（只在手动检查时提示「检查更新失败: <原因>」）；
 - 本地未安装时不提示（首装归 bootstrap 管，不走更新流程）。
 
 ### 2.3 版本比较规则
@@ -61,33 +66,47 @@
 3. 三段相等时：**正式版 > 预发布版**；预发布之间按字符串比较（够用，不追求 semver 完整实现）；
 4. 任一侧解析失败则退化为**字符串不等比较**（宁可提示一次更新，也不静默错过）。
 
-### 2.4 一键更新的时序与回滚语义
+### 2.4 一键更新的时序与自愈语义
 
 ```
 用户点「立即更新」→ ApplyUpdate(ctx)
-  1. updating 标志置位（重复点击无效）
+  1. updating 标志置位（互斥锁保护，重复点击无效）
   2. Supervisor.Stop(StatusUpdating)   停 DSH，回收进程树
   3. bootstrap.UpdateDsh()             node npm-cli.js install @deepseek-ai/dsh@latest --prefix runtime/dsh
-     ├─ 失败 → 发 update:progress{failed}，**旧包未被破坏**，重新 Start 旧版本继续可用
-     └─ 成功 → 发 update:progress{done}
+     │                                 （子进程 PATH 前置了捆绑 node 目录——koffi 等依赖的
+     │                                  install 脚本要再调 node，没有全局 node 的机器全靠它）
+     ├─ 成功 → 校验 RuntimeReady（bin.js 在位）
+     └─ 失败 → npm reify **可能已把旧包从 node_modules 删掉**（实测会）：
+              若 RuntimeReady() 为假 → EnsureRuntime 重装（node 在位，只装 dsh）恢复旧版
+              ├─ 重装也失败 → 发 update:progress{failed}，落失败浮层
+              └─ 重装成功 → 继续往下走（旧版本复活并重启）
   4. Supervisor.Start()                重启 DSH（新端口、新 token）
-  5. wireProxy 重新兑换 cookie → runtime:url → 前端 iframe 刷新到新实例
+     └─ 失败 → 发 update:progress{failed}
+  5. 成功后才发 update:progress{done}  → 前端提示「更新完成，DSH 已重启」
+  6. wireProxy 重新兑换 cookie → runtime:url → 前端 iframe 刷新到新实例
      （代理端口跨重启不变，URL 同值；`runtime:url` 路径同值也重设 src 强制重载，
      见 [02](02-architecture.md) 第 2 节——不重载则新前端资产不生效）
-  6. 再跑一次 checkUpdate(false)
+  7. 再跑一次 checkUpdate(false)
 ```
 
-设计要点：**更新失败不把用户卡死**——旧版本保持完好并自动重启；
-前端此时显示「更新失败（已回退旧版本）」。
+设计要点：**更新失败不把用户卡死**——npm 失败后旧包若被 reify 误删，壳会自动重装
+把它救回来再重启；`done` 事件只在 DSH 真正重启成功后发出，前端不会看到
+「已重启」之后紧跟「运行出错」的自相矛盾提示。
 
 > 为什么是"重装整个包"而不是"热替换"：热替换需要动 DSH 的运行态，越界（见铁律 1）。
-> npm 装到独立 `--prefix` 目录，失败时旧目录内容不被清空，天然具备回滚能力。
+> npm 装到独立 `--prefix` 目录；但**不要假设"npm 失败 = 旧目录完好"**——reify 中途
+> 失败会删除待替换的旧包，壳靠上面的重装兜底，这正是 3 的失败分支存在的理由。
 
 ### 2.5 内网 / 受限网络
 
 改 `config.json` 的 `npmRegistry`（查询与安装共用同一个 registry）即可走镜像，
 配置见 [05-configuration.md](05-configuration.md)。禁用自动检查的做法目前**没有开关**，
 属于待办功能，不要用"钉住 dshVersion"去变相实现（见 05 第 4 节的说明）。
+
+版本检查另有一层兜底：直连失败会自动换 Windows 系统代理（WinINET 注册表里的
+静态代理）再试一轮，见 2.2。两个已知边界：PAC 脚本代理不认（求值需要脚本引擎，
+直接跳过）；**npm install 阶段不走这层兜底**——npm 只认环境变量，需要让安装也
+走代理时，设 `HTTPS_PROXY` 后再触发更新即可。
 
 ## 3. 契约漂移：DSH 变了怎么办
 
