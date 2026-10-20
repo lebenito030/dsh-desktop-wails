@@ -2,8 +2,11 @@ package update
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
 
 	"dsh-desktop-wails/internal/dsh"
@@ -103,5 +106,81 @@ func TestCheckNoLocalVersion(t *testing.T) {
 	}
 	if res.LatestVersion != "9.9.9" {
 		t.Errorf("LatestVersion = %q", res.LatestVersion)
+	}
+}
+
+// 换路编排的三条语义：传输层失败换下一跳；registry 已应答（非 200）不换路；
+// 全部失败报最后一跳原因。attemptClients 是包级变量，测试里直接换成可编排的假路径。
+type deadTransport struct{ err error }
+
+func (d deadTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, d.err
+}
+
+func TestLatestFallsThroughToNextPath(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"version":"9.9.9"}`))
+	}))
+	defer srv.Close()
+
+	orig := attemptClients
+	attemptClients = func() []namedClient {
+		return []namedClient{
+			{name: "直连", client: &http.Client{Transport: deadTransport{err: errors.New("dial tcp: connection refused")}}},
+			{name: "系统代理", client: srv.Client()},
+		}
+	}
+	defer func() { attemptClients = orig }()
+
+	c := Checker{Registry: srv.URL, Package: "@deepseek-ai/dsh"}
+	got, err := c.Latest(context.Background())
+	if err != nil {
+		t.Fatalf("第二跳应当成功: %v", err)
+	}
+	if got != "9.9.9" {
+		t.Errorf("Latest = %q", got)
+	}
+}
+
+func TestLatestDoesNotSwitchPathWhenRegistryAnswered(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		http.Error(w, "nope", http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	orig := attemptClients
+	attemptClients = func() []namedClient {
+		return []namedClient{
+			{name: "直连", client: &http.Client{Transport: deadTransport{err: errors.New("refused")}}},
+			{name: "系统代理", client: srv.Client()},
+			{name: "直连重试", client: &http.Client{Transport: deadTransport{err: errors.New("refused")}}},
+		}
+	}
+	defer func() { attemptClients = orig }()
+
+	c := Checker{Registry: srv.URL, Package: "@deepseek-ai/dsh"}
+	_, err := c.Latest(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "registry 返回") {
+		t.Fatalf("应上报 registry 的应答错误: %v", err)
+	}
+	if n := atomic.LoadInt32(&hits); n != 1 {
+		t.Errorf("registry 已应答就不该再换路, 命中 %d 次", n)
+	}
+}
+
+func TestLatestAllPathsFail(t *testing.T) {
+	orig := attemptClients
+	attemptClients = func() []namedClient {
+		dead := &http.Client{Transport: deadTransport{err: errors.New("dial tcp: i/o timeout")}}
+		return []namedClient{{name: "直连", client: dead}, {name: "直连重试", client: dead}}
+	}
+	defer func() { attemptClients = orig }()
+
+	c := Checker{Registry: "http://127.0.0.1:1", Package: "@deepseek-ai/dsh"}
+	_, err := c.Latest(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "查询 registry 失败") {
+		t.Fatalf("全部路径失败应报错: %v", err)
 	}
 }
