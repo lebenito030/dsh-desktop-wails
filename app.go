@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"sync"
 
 	"dsh-desktop-wails/internal/bootstrap"
 	"dsh-desktop-wails/internal/config"
@@ -26,10 +27,12 @@ type App struct {
 	sup      *dsh.Supervisor
 	upd      update.Checker
 	prx      *proxy.Proxy
+	updMu    sync.Mutex // 保护 updating 与 runtimeVersions
 	updating bool
 	quitting bool
 	// runtimeVersions 是托盘 tooltip 第二行的版本串（"DSH x · Node y"），
 	// 惰性填充：首次需要时读取，安装/更新 DSH 后由 ApplyUpdate 失效。
+	// supervisor 回调、托盘、ApplyUpdate 三方都会碰，必须持 updMu 读写。
 	runtimeVersions string
 }
 
@@ -145,6 +148,8 @@ func (a *App) OnStatus(s dsh.Status, detail string) {
 // dsh 版本读本地 package.json，node 版本取配置值（即实际安装的版本）；
 // dsh 未安装时返回空串（tooltip 不显示版本行）。结果缓存，安装/更新后失效。
 func (a *App) runtimeVersionLine() string {
+	a.updMu.Lock()
+	defer a.updMu.Unlock()
 	if a.runtimeVersions != "" {
 		return a.runtimeVersions
 	}
@@ -304,36 +309,69 @@ func (a *App) checkUpdate(manual bool) {
 }
 
 // ApplyUpdate 用户确认更新后调用：停 DSH → npm 装新版 → 重启。
-// 全程经 update:progress 事件汇报；失败时旧版本未被破坏，重启旧版继续用。
+// 全程经 update:progress 事件汇报；失败时尽力自愈——npm reify 中途失败
+// 可能把旧包从 node_modules 删掉（实测会），此时重装一遍恢复可用，
+// 重装也失败才报 failed。done 事件在 DSH 真正重启成功后才发。
 func (a *App) ApplyUpdate() {
+	a.updMu.Lock()
 	if a.updating {
+		a.updMu.Unlock()
 		return
 	}
 	a.updating = true
-	defer func() { a.updating = false }()
+	a.updMu.Unlock()
+	defer func() {
+		a.updMu.Lock()
+		a.updating = false
+		a.updMu.Unlock()
+	}()
 
 	ctx := a.ctx
 	_ = a.sup.Stop(ctx, dsh.StatusUpdating)
+	returned := false // 置位 = 已发过 failed，后面只恢复不再报 done
+	emit := func(phase bootstrap.Phase, detail string, indeterminate bool) {
+		wruntime.EventsEmit(ctx, "update:progress", map[string]any{
+			"phase": string(phase), "detail": detail,
+			"indeterminate": indeterminate,
+		})
+	}
 	report := func(phase bootstrap.Phase, detail string, got, total int64, indeterminate bool) {
 		wruntime.EventsEmit(ctx, "update:progress", map[string]any{
 			"phase": string(phase), "detail": detail,
 			"downloaded": got, "total": total, "indeterminate": indeterminate,
 		})
 	}
+	muted := func(bootstrap.Phase, string, int64, int64, bool) {}
+	fail := func(detail string) {
+		emit(bootstrap.PhaseFailed, detail, false)
+		returned = true
+	}
+	doneDetail := ""
 	if err := a.inst.UpdateDsh(ctx, report); err != nil {
-		// npm install 失败不落盘新版本，旧包完好：重启旧版继续用。
-		wruntime.EventsEmit(ctx, "update:progress", map[string]any{
-			"phase": string(bootstrap.PhaseFailed), "detail": err.Error(),
-		})
-		_, _ = a.sup.Start(ctx)
+		// npm 失败未必保得住旧包（reify 可能已删 @deepseek-ai/dsh）。
+		// 运行时缺了就重装（node 在位时只装 dsh），救回来旧版继续可用。
+		if a.inst.RuntimeReady() {
+			fail(err.Error())
+		} else {
+			emit(bootstrap.PhaseDsh, "安装失败，正在恢复已安装的版本…", true)
+			if err2 := a.inst.EnsureRuntime(ctx, muted); err2 != nil {
+				fail("更新失败且恢复旧版本失败: " + err2.Error())
+			} else {
+				doneDetail = "更新失败，已恢复旧版本继续使用"
+			}
+		}
+	}
+	a.updMu.Lock()
+	a.runtimeVersions = "" // dsh 版本可能已变，托盘 tooltip 的版本行下次重新读取
+	a.updMu.Unlock()
+	if _, err := a.sup.Start(ctx); err != nil {
+		if !returned { // 失败态已发过就不再叠加
+			fail("DSH 重启失败: " + err.Error())
+		}
 		return
 	}
-	wruntime.EventsEmit(ctx, "update:progress", map[string]any{
-		"phase": string(bootstrap.PhaseDone),
-	})
-	a.runtimeVersions = "" // dsh 版本已变，托盘 tooltip 的版本行下次重新读取
-	if _, err := a.sup.Start(ctx); err != nil {
-		return
+	if !returned {
+		emit(bootstrap.PhaseDone, doneDetail, false)
 	}
 	go a.checkUpdate(false)
 }
