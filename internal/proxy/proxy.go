@@ -50,10 +50,18 @@ func (p *Proxy) SetTarget(targetURL string, cookies []*http.Cookie) error {
 	if p.rp == nil {
 		p.rp = httputil.NewSingleHostReverseProxy(tu)
 		rp := p.rp
-		original := rp.Director
-		rp.Director = func(req *http.Request) {
-			original(req)
-			p.direct(req)
+		// 用 Rewrite 而非 Director：Director 路径下 Go 的 ReverseProxy 会自动给
+		// 转发请求补 X-Forwarded-For（net/http/httputil/reverseproxy.go 的非
+		// Rewrite 分支把 clientIP 写进该头）。@linxin666/dsh-usage 插件的
+		// isLoopbackRequest() 见到 X-Forwarded-For 就把请求判成「经过代理」，
+		// 对 /api/dsh-usage/overview 回 403 "forbidden: loopback-only"。Rewrite
+		// 分支会剥掉入站转发头，且只有显式调用 SetXForwarded 才补——我们刻意
+		// 不调，DSH 侧仍视其为本地 loopback 请求，该端点即放行。
+		// Director 与 Rewrite 只能二选一（stdlib 在两者同为空或同非空时报错）。
+		rp.Director = nil
+		rp.Rewrite = func(pr *httputil.ProxyRequest) {
+			rewriteTarget(pr.Out, tu)
+			p.direct(pr.Out)
 		}
 		// 向 DSH 的 HTML 注入主题上报脚本：iframe 跨源，壳无法读取页面
 		// 配色；由页面自己检测背景亮度并 postMessage 出来。
@@ -81,9 +89,9 @@ func (p *Proxy) SetTarget(targetURL string, cookies []*http.Cookie) error {
 			_, _ = w.Write([]byte("DSH 服务暂不可用（可能正在重启）"))
 		}
 	} else {
-		p.rp.Director = func(req *http.Request) {
-			rewriteTarget(req, tu)
-			p.direct(req)
+		p.rp.Rewrite = func(pr *httputil.ProxyRequest) {
+			rewriteTarget(pr.Out, tu)
+			p.direct(pr.Out)
 		}
 	}
 	return nil
