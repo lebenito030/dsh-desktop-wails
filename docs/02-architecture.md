@@ -103,9 +103,23 @@ dsh web: http://127.0.0.1:<port>/?token=<登录令牌>
    - 把 Origin / Referer 改写为上游 scheme://host
      （DSH 有 Host/Origin 信任围栏：Origin 存在时必须等于 Host）
    - Accept-Encoding 强制 identity，便于注入探针
+   - 绝不补 X-Forwarded-For / CF-Connecting-IP（见下方「转发头围栏」）
 3. iframe 指向 http://127.0.0.1:<代理端口>/
 4. WebSocket 由 httputil.ReverseProxy 原样升级转发（DSH 前端有实时通道）
 ```
+
+**转发头围栏（重要）**：多个 web 插件（`@linxin666/dsh-usage`、`@linxin666/dsh-update`）
+共用同一份 loopback 信任围栏 `isLoopbackRequest()`（`dsh-web-shared/host/loopback.ts` 的
+生成副本）。该围栏除了校验 `socket.remoteAddress` 与 Host 头之外，还有一条：**请求只要带
+`X-Forwarded-For` 或 `CF-Connecting-IP`，就判为「中间有代理」而直接拒绝**——用法端点报
+`403 {"ok":false,"error":"forbidden: loopback-only"}`，更新端点报
+`403 {"ok":false,"code":"forbidden"}`（浏览器里显示成「检查更新 · 无法连接更新源」）。
+问题在于 Go 的 `httputil.ReverseProxy` 在 **Director 模式**下会自动给转发请求补
+`X-Forwarded-For`（`net/http/httputil/reverseproxy.go` 的非 Rewrite 分支把 clientIP
+写进该头）。因此 `internal/proxy` 改用 **`Rewrite`** 而不是 `Director`：Rewrite 分支会剥掉
+入站转发头，且只有显式调用 `ProxyRequest.SetXForwarded()` 才补——我们刻意不调。注意
+stdlib 要求 `Director` 与 `Rewrite` **只能二选一**（同为空或同非空都会报错），所以设
+`Rewrite` 时必须把 `Director` 置空。
 
 兑换失败时**降级为直连**（`a.OnURL(readyURL)`），至少浏览器场景可用，而不是白屏。
 
